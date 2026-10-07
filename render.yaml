@@ -1,0 +1,33 @@
+# Render Blueprint: New + -> Blueprint -> pick this repo.
+# Secrets marked sync:false are entered in the Render dashboard, never committed.
+services:
+  - type: web
+    name: aquacast-backend
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PUBLIC_SITE_URL
+        sync: false            # e.g. https://aquacast-backend.onrender.com
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: MOCK_EDGE_ENABLED
+        value: "true"          # set to "false" once the real Raspberry Pi is syncing
+      - key: MOCK_EDGE_TICK_SECONDS
+        value: "30"
+      - key: MOCK_EDGE_BACKFILL_HOURS
+        value: "24"

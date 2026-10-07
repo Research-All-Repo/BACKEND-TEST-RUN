@@ -1,0 +1,25 @@
+{
+  "name": "aquacast-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AquaCast dashboard backend: Supabase Auth sessions, dashboard API, aerator command requests, mock edge simulator",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node scripts/seed-mock-data.js",
+    "simulate": "node scripts/run-edge-simulator.js",
+    "create-admin": "node scripts/create-admin.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.22.3",
+    "helmet": "^8.3.0"
+  }
+}
