@@ -45,6 +45,15 @@ const config = {
   aeratorReportStaleMinutes: num('AERATOR_REPORT_STALE_MINUTES', 20),
   aeratorCommandTtlSeconds: num('AERATOR_COMMAND_TTL_SECONDS', 120),
 
+  // Web Push (instant phone alerts). Generate keys with: npx web-push generate-vapid-keys
+  push: {
+    publicKey: process.env.VAPID_PUBLIC_KEY || '',
+    privateKey: process.env.VAPID_PRIVATE_KEY || '',
+    subject: process.env.VAPID_SUBJECT || 'mailto:admin@aquacast.local',
+    hookSecret: process.env.PUSH_HOOK_SECRET || '',
+    criticalReminderMinutes: num('PUSH_CRITICAL_REMINDER_MINUTES', 30),
+  },
+
   // Mock edge device (simulates the Raspberry Pi pushing data and acknowledging commands)
   mockEdge: {
     enabled: bool('MOCK_EDGE_ENABLED', false),

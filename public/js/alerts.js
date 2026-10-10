@@ -10,6 +10,7 @@
 // CRITICAL repeats a reminder every 30 minutes while it lasts, and its alarm repeats every 30 s
 // until someone touches the critical dialog. Nothing is sent when the app is closed.
 import { html, raw, ic, fmtNum, fmtTime, openModal, toast } from './ui.js';
+import { get, post } from './api.js';
 
 const KEY = 'aq-alert-state';
 const SOUND_KEY = 'aq-alert-sound';
@@ -212,12 +213,53 @@ window.addEventListener('appinstalled', () => { installEvent = null; toast('Aqua
 const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
 const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-export function registerServiceWorker() {
+export function registerServiceWorker(onRefresh) {
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.register('/sw.js').catch(() => { /* app still works without it */ });
   navigator.serviceWorker.addEventListener?.('message', (e) => {
     if (e.data?.type === 'navigate' && e.data.hash) location.hash = e.data.hash;
+    if (e.data?.type === 'refresh') onRefresh?.();
   });
+}
+
+// ---------------- instant phone alerts (Web Push) ----------------
+// The server pushes Warning/Critical alerts to every device that turned on notifications,
+// so they arrive within seconds even when AquaCast is closed or the phone is locked.
+let pushState = 'unknown'; // on | off | unsupported | server-off | error
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+function b64ToBytes(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw0 = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw0].map((c) => c.charCodeAt(0)));
+}
+/** Subscribe this device (if notifications are allowed) and register it with the server. */
+export async function syncPush() {
+  try {
+    if (!pushSupported()) { pushState = 'unsupported'; return pushState; }
+    if (Notification.permission !== 'granted') { pushState = 'off'; return pushState; }
+    const { data } = await get('/api/push/public-key');
+    if (!data.enabled) { pushState = 'server-off'; return pushState; }
+    const reg = await navigator.serviceWorker.ready;
+    const key = b64ToBytes(data.public_key);
+    let sub = await reg.pushManager.getSubscription();
+    const same = sub?.options?.applicationServerKey && new Uint8Array(sub.options.applicationServerKey).every((v, i) => v === key[i]);
+    if (sub && !same) { await sub.unsubscribe(); sub = null; }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    await post('/api/push/subscribe', { subscription: sub.toJSON() });
+    pushState = 'on';
+  } catch { pushState = 'error'; }
+  return pushState;
+}
+/** Called before logging out: this device stops receiving alerts for the account. */
+export async function unsubscribePush() {
+  try {
+    if (!pushSupported()) return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = await reg?.pushManager.getSubscription();
+    if (!sub) return;
+    await post('/api/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
+    await sub.unsubscribe();
+  } catch { /* ignore */ }
 }
 
 // ---------------- "Alerts & app" dialog ----------------
@@ -238,9 +280,11 @@ export function openAlertSettings() {
         <button type="button" data-close aria-label="Close">${ic('x', 18)}</button></div>
       <div class="aq-settings-body">
         <section><h4>${ic('bell-ring', 16)}Notifications</h4>
-          <p>Shows a phone/computer notification when a Warning or Critical reading arrives while AquaCast is open in the background.</p>
-          <div class="aq-settings-row"><span>Status: <b>${permText}</b></span>
-            ${perm === 'default' ? raw('<button type="button" class="aq-btn primary" data-act="perm">Enable notifications</button>') : ''}</div></section>
+          <p>Instant phone alerts: the server sends Warning and Critical alerts to this device within seconds, even when AquaCast is closed or the phone is locked.</p>
+          <div class="aq-settings-row"><span>Permission: <b>${permText}</b></span>
+            ${perm === 'default' ? raw('<button type="button" class="aq-btn primary" data-act="perm">Enable notifications</button>') : ''}</div>
+          ${perm === 'granted' ? raw(html`<div class="aq-settings-row"><span>Instant alerts: <b>${{ on: 'On for this device', off: 'Off', unsupported: 'Not supported by this browser', 'server-off': 'Not set up on the server yet', error: 'Could not register this device', unknown: 'Checking…' }[pushState]}</b></span>
+            ${pushState !== 'on' && pushState !== 'unsupported' && pushState !== 'server-off' ? raw('<button type="button" class="aq-btn" data-act="push">Retry</button>') : ''}</div>`) : ''}</section>
         <section><h4>${ic('volume-2', 16)}Alert sound</h4>
           <label class="aq-switch"><input type="checkbox" data-act="sound" ${soundEnabled() ? 'checked' : ''}><span>Play an alert tone (and vibrate on Android)</span></label>
           <div class="aq-test-row">
@@ -249,15 +293,17 @@ export function openAlertSettings() {
           </div>
           <p>Warning plays a two-note chime. Critical plays an urgent siren and repeats every 30 seconds until someone taps the critical alert.</p></section>
         <section><h4>${ic('smartphone', 16)}Home screen app</h4>${raw(installHtml)}</section>
-        <p class="aq-settings-note">Alerts work while AquaCast is open (on screen or in the background). If the app is fully closed or the phone is asleep for a long time, the phone may pause it; you will see the alert as soon as you open it again.</p>
+        <p class="aq-settings-note">With instant alerts on, the phone shows a notification within seconds even when AquaCast is closed. The full-screen alert and the siren play when AquaCast is open (tap the notification to open it). On iPhone, notifications need the Home Screen app (iOS 16.4 or newer).</p>
       </div>`,
     onMount: (m, close) => {
       m.querySelector('[data-act=perm]')?.addEventListener('click', async () => {
         unlockAudio();
         const r = await Notification.requestPermission();
-        toast(r === 'granted' ? 'Notifications enabled on this device.' : 'Notifications were not allowed.', r === 'granted' ? 'success' : 'error');
+        if (r === 'granted') await syncPush();
+        toast(r === 'granted' ? (pushState === 'on' ? 'Instant alerts are on for this device.' : 'Notifications enabled on this device.') : 'Notifications were not allowed.', r === 'granted' ? 'success' : 'error');
         close(); openAlertSettings();
       });
+      m.querySelector('[data-act=push]')?.addEventListener('click', async () => { await syncPush(); close(); openAlertSettings(); });
       m.querySelector('[data-act=sound]')?.addEventListener('change', (e) => { store.set(SOUND_KEY, e.target.checked); unlockAudio(); });
       const test = (level) => async () => {
         unlockAudio();

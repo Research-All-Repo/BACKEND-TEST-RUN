@@ -59,6 +59,24 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/live/pulse - tiny "did anything change?" check the dashboard polls every 15 s while
+ * it is on screen: latest risk id/state and any admin test alert. The full /api/live is only
+ * fetched again when something changed (or every 60 s).
+ */
+router.get('/pulse', async (req, res, next) => {
+  try {
+    const { db } = req.auth;
+    const [risk, testAlert] = await Promise.all([
+      db.from('risk_assessments').select('risk_id, current_risk_state').order('assessment_timestamp_utc', { ascending: false }).limit(1).maybeSingle(),
+      S.getTestAlert(db),
+    ]);
+    res.json({ data: { risk_id: risk.data?.risk_id || null, state: risk.data?.current_risk_state || null, test_alert_id: testAlert?.id || null } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 function stationInfo(study) {
   if (!study) return null;
   return { site_description: study.site_description, culture_species: study.culture_species, culture_stage: study.culture_stage,

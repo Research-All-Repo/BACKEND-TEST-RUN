@@ -1,7 +1,7 @@
 // AquaCast service worker: lets the dashboard be installed on the home screen, opens the
 // app shell when the network is flaky, and shows / handles risk-alert notifications.
 // API calls (/api/*) are NEVER cached: monitoring data always comes live from the server.
-const CACHE = 'aquacast-shell-v2';
+const CACHE = 'aquacast-shell-v4';
 const SHELL = [
   '/', '/index.html', '/manifest.webmanifest',
   '/css/aquacast.css', '/css/aquacast-extra.css',
@@ -59,5 +59,38 @@ self.addEventListener('notificationclick', (event) => {
       }
     }
     await self.clients.openWindow(target);
+  })());
+});
+
+// Instant risk alerts pushed by the server (Web Push). Arrives even when AquaCast is closed.
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data?.text() }; }
+  const critical = d.level === 'CRITICAL';
+  event.waitUntil((async () => {
+    await self.registration.showNotification(d.title || 'AquaCast alert', {
+      body: d.body || 'Open AquaCast for details.',
+      tag: d.tag || 'aquacast-risk', renotify: true, requireInteraction: critical,
+      icon: '/img/icons/icon-192.png', badge: '/img/icons/favicon-64.png',
+      vibrate: critical ? [500, 200, 500, 200, 500, 200, 500] : [300, 150, 300],
+      data: { url: d.url || '/#live' },
+    });
+    try { if (self.navigator.setAppBadge) await self.navigator.setAppBadge(1); } catch { /* unsupported */ }
+    // an open dashboard refreshes at once (shows the alert screen and plays the alarm)
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    wins.forEach((w) => w.postMessage({ type: 'refresh' }));
+  })());
+});
+
+// The browser rotated the subscription: register the new one with the server.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    try {
+      const key = event.oldSubscription?.options?.applicationServerKey;
+      const sub = event.newSubscription || (key ? await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }) : null);
+      if (!sub) return;
+      await fetch('/api/push/subscribe', { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-AquaCast-Client': 'dashboard' }, body: JSON.stringify({ subscription: sub.toJSON() }) });
+    } catch { /* re-registered next time the app opens */ }
   })());
 });

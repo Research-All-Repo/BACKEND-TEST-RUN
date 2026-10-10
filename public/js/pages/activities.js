@@ -14,6 +14,9 @@ function describe(a) {
   if (a.event_type === 'MOCK_EDGE_STATE_CHANGED') {
     try { return `Simulated edge device set ${JSON.parse(a.details).offline ? 'OFFLINE' : 'ONLINE'} (test data only).`; } catch { /* fall through */ }
   }
+  if (a.event_type === 'PUSH_RISK_SENT') {
+    try { const d = JSON.parse(a.details); return `${d.reminder ? 'Reminder: ' : ''}${d.state} alert (DO ${d.do}) pushed to ${d.sent ?? 0} phone(s)${d.failed ? `, ${d.failed} failed` : ''}.`; } catch { /* fall through */ }
+  }
   if (a.event_type === 'ALERT_TEST_BROADCAST') {
     try { return `Test ${JSON.parse(a.details).level} alert sent to all signed-in devices (no real reading).`; } catch { /* fall through */ }
   }

@@ -25,7 +25,7 @@ const EVENT_LABELS = {
   AERATOR_ON_REQUEST: 'Aerator ON Request', AERATOR_OFF_REQUEST: 'Aerator OFF Request', RISK_WARNING: 'System Warning', RISK_CRITICAL: 'Critical Warning',
   ALERT_ACKNOWLEDGED: 'Alert Acknowledgement', STUDY_METADATA_UPDATED: 'Settings Update', AERATOR_MODE_REQUESTED: 'Aerator Mode Request',
   USER_ACCESS_APPROVE: 'User Approved', USER_ACCESS_REJECT: 'Request Rejected', USER_ACCESS_SUSPEND: 'User Suspended', USER_ACCESS_REACTIVATE: 'User Reactivated',
-  USER_ACCESS_REVOKE: 'Access Revoked', USER_ACCESS_CHANGE_ROLE: 'Role Changed', USER_DETAILS_UPDATED: 'User Details Updated', MANAGEMENT_EVENT_CLOSED: 'Activity Closed', MOCK_EDGE_STATE_CHANGED: 'Simulator Online/Offline', ALERT_TEST_BROADCAST: 'Test Alert Sent',
+  USER_ACCESS_REVOKE: 'Access Revoked', USER_ACCESS_CHANGE_ROLE: 'Role Changed', USER_DETAILS_UPDATED: 'User Details Updated', MANAGEMENT_EVENT_CLOSED: 'Activity Closed', MOCK_EDGE_STATE_CHANGED: 'Simulator Online/Offline', ALERT_TEST_BROADCAST: 'Test Alert Sent', PUSH_RISK_SENT: 'Phone Alert Sent',
 };
 export const eventLabel = (t) => EVENT_LABELS[t] || String(t || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 

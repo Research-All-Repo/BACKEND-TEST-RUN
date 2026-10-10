@@ -52,8 +52,16 @@ router.post('/test-broadcast', requireRole('ADMIN'), async (req, res, next) => {
       details: { level, sent_by: sentBy, note: 'Test of the alert sound and notification on all signed-in devices' },
     }).select('audit_id, created_at').single();
     if (error) throw fromSupabase(error);
-    res.status(201).json({ data: { id: data.audit_id, level, sent_at: data.created_at },
-      meta: { message: `Test ${level} alert sent. Open dashboards receive it within about a minute.` } });
+    // instant delivery to phones that turned on notifications (works even if the app is closed)
+    const pushed = await require('../lib/push').sendToAll({
+      level, test: true, tag: 'aquacast-test', url: '/#live',
+      title: level === 'CRITICAL' ? 'TEST: Critical DO alert' : 'TEST: DO Warning alert',
+      body: `Test sent by ${sentBy}. Not a real reading. Open AquaCast to see the alert screen.`,
+    }).catch((e) => ({ error: e.message }));
+    res.status(201).json({ data: { id: data.audit_id, level, sent_at: data.created_at, push: pushed },
+      meta: { message: pushed.sent
+        ? `Test ${level} alert pushed to ${pushed.sent} device(s) now; open dashboards also show it within seconds.`
+        : `Test ${level} alert sent. Open dashboards show it within seconds${pushed.disabled ? ' (phone push is not configured yet)' : ' (no device has turned on phone alerts yet)'}.` } });
   } catch (err) {
     next(err);
   }

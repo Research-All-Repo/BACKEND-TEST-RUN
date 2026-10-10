@@ -152,7 +152,11 @@ class MockEdge {
       const to = new Date(now.getTime() - 60_000);
       if (from <= to) {
         const n = await pushCycles(db, { from, to, study: this.ref.study, models: this.ref.models });
-        if (n) { this.cyclesPushed += n; this.log(`pushed ${n} cycle(s)`); }
+        if (n) {
+          this.cyclesPushed += n; this.log(`pushed ${n} cycle(s)`);
+          // same path the real Pi triggers through the Supabase webhook: maybe send a phone alert
+          await require('../services/risk-push').evaluateAndNotify().catch((e) => this.log('push failed:', e.message));
+        }
       }
       // 2. controller duties
       await this.processModeRevision(now);

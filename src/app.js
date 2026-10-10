@@ -37,6 +37,9 @@ function createApp({ mockEdge = null } = {}) {
   // Liveness probe (no auth, no database secrets)
   app.get('/healthz', (_req, res) => res.json({ ok: true, service: 'aquacast-backend', time: new Date().toISOString() }));
 
+  // Supabase Database Webhook -> instant phone alerts (secret header; mounted before the CSRF check)
+  app.post('/api/push/risk-hook', require('./routes/push').riskHook);
+
   // CSRF defence for cookie sessions: state-changing API calls must carry a custom
   // header (browsers cannot add it cross-site without CORS, which is not enabled)
   // and, when present, an Origin matching this host.
@@ -67,6 +70,7 @@ function createApp({ mockEdge = null } = {}) {
   app.use('/api/activities', authed, require('./routes/activities'));
   app.use('/api/alerts', authed, require('./routes/alerts'));
   app.use('/api/aerator', authed, require('./routes/aerator'));
+  app.use('/api/push', authed, require('./routes/push').router);
   app.use('/api/settings', authed, admin, require('./routes/settings'));
   app.use('/api/evaluation', authed, admin, require('./routes/evaluation'));
   app.use('/api/users', authed, admin, require('./routes/users'));

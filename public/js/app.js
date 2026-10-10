@@ -3,7 +3,7 @@
 // All data comes from the backend API (see docs/API.md); no Supabase keys in the browser.
 import { get, post, onAuthProblem } from './api.js';
 import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
-import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm } from './alerts.js';
+import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
 // Installed home-screen app or a phone/tablet: stay signed in by default (persistent cookies,
@@ -213,6 +213,7 @@ function enterApp(profile) {
   root.querySelector('[data-open=profile]').addEventListener('click', openProfile);
   root.querySelector('[data-open=logout]').addEventListener('click', openLogout);
   root.querySelector('[data-open=alerts]').addEventListener('click', openAlertSettings);
+  syncPush(); // registers this device for instant phone alerts if notifications are allowed
   route();
   startPolling();
 }
@@ -444,8 +445,21 @@ async function refreshLive() {
   }
   return state.live;
 }
-function startPolling() { stopPolling(); refreshLive(); state.poll = setInterval(refreshLive, 60_000); }
-function stopPolling() { if (state.poll) clearInterval(state.poll); state.poll = null; }
+// Full refresh every 60 s, plus a tiny "anything new?" check every 15 s while the dashboard is
+// on screen, so a new Warning/Critical reading or a test alert shows up within seconds.
+async function pulse() {
+  if (document.visibilityState !== 'visible' || !state.live) return;
+  try {
+    const { data } = await get('/api/live/pulse');
+    if (data.risk_id !== (state.live.risk?.risk_id || null) || (data.test_alert_id && data.test_alert_id !== state.live.test_alert?.id)) refreshLive();
+  } catch { /* the 60 s refresh reports errors */ }
+}
+function startPolling() {
+  stopPolling(); refreshLive();
+  state.poll = setInterval(refreshLive, 60_000);
+  state.pulse = setInterval(pulse, 15_000);
+}
+function stopPolling() { if (state.poll) clearInterval(state.poll); if (state.pulse) clearInterval(state.pulse); state.poll = null; state.pulse = null; }
 window.addEventListener('online', refreshLive);
 // phones pause background pages: refresh the moment the dashboard is shown again
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.poll) refreshLive(); });
@@ -486,6 +500,7 @@ function openLogout() {
       <div class="logout-confirm-actions"><button type="button" class="account-secondary-button" data-close>Cancel</button>
         <button type="button" class="account-logout-action" data-confirm>${ic('log-out', 16)}Log Out</button></div>`,
     onMount: (m, close) => m.querySelector('[data-confirm]').addEventListener('click', (e) => busy(e.currentTarget, async () => {
+      await unsubscribePush();
       try { await post('/api/auth/logout', {}, { silentAuth: true }); } catch { /* cookies are cleared server-side when reachable */ }
       close();
       if (state.cleanup) state.cleanup();
@@ -508,7 +523,7 @@ onAuthProblem((err) => {
 // Boot: restore a remembered session
 // =====================================================================
 (async function boot() {
-  registerServiceWorker();
+  registerServiceWorker(() => { if (state.poll) refreshLive(); });
   const params = new URLSearchParams(location.search);
   try {
     const r = await get('/api/auth/session', { silentAuth: true });
