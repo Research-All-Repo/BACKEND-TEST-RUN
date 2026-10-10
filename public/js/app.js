@@ -245,16 +245,26 @@ async function route(opts) {
   document.title = `${page.label} · AquaCast System`;
   if (state.cleanup) { try { state.cleanup(); } catch { /* ignore */ } state.cleanup = null; }
   state.page = id;
+  // every visit gets its own container: a page that is still loading when the user moves on keeps
+  // writing into its old (detached) container and can never overwrite or break the new page
+  const token = (state.navToken || 0) + 1;
+  state.navToken = token;
   const host = document.getElementById('page');
-  host.innerHTML = loadingBox();
+  const view = document.createElement('div');
+  view.className = 'aq-view';
+  view.innerHTML = loadingBox();
+  host.replaceChildren(view);
   window.scrollTo(0, 0);
+  const current = () => state.navToken === token;
   try {
     const mod = await PAGE_MODULES[id]();
-    if (state.page !== id) return;
-    const cleanup = await mod.default(host, ctx(navOpts));
-    if (state.page === id) state.cleanup = typeof cleanup === 'function' ? cleanup : null;
+    if (!current()) return;
+    const cleanup = await mod.default(view, ctx(navOpts));
+    if (current()) state.cleanup = typeof cleanup === 'function' ? cleanup : null;
+    else if (typeof cleanup === 'function') { try { cleanup(); } catch { /* ignore */ } }
   } catch (err) {
-    if (!['SESSION_EXPIRED', 'SESSION_MISSING'].includes(err.code)) host.innerHTML = errorBox(err);
+    if (!current()) return; // the user already left this page; its late error is irrelevant
+    if (!['SESSION_EXPIRED', 'SESSION_MISSING'].includes(err.code)) view.innerHTML = errorBox(err);
   }
 }
 window.addEventListener('hashchange', () => route());
