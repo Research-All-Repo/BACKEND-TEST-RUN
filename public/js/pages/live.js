@@ -146,12 +146,9 @@ export default async function live(root, ctx) {
           </div>
           <p class="aq-chart-summary">${raw(liveSummary(d, series, doValue, rule))}</p>
           ${d.critical_outlook?.crossing_expected ? raw(html`<div class="do-trend-outlook">${ic('triangle-alert', 15)}<span><strong>Forecast outlook:</strong> The forecast reaches the configured critical reference by approximately ${outlook}.</span></div>`) : ''}
-          <div class="do-trend-toolbar">
-            <div class="aq-zoom-presets" role="group" aria-label="How far back to show">${LIVE_RANGES.map((h) => raw(`<button type="button" data-live-range="${h}" class="${h === liveRange ? 'active' : ''}" aria-pressed="${h === liveRange}">${h}h</button>`))}</div>
-            <div class="do-trend-keys">
-              ${rule.critical_do_mg_l !== null ? raw(html`<span><i class="dotted" style="--c:#e11d48"></i>Critical (≤ ${fmtNum(rule.critical_do_mg_l, 1)} mg/L)</span><span><i class="dotted" style="--c:#d97706"></i>Watch (${fmtNum(rule.critical_do_mg_l, 1)}–${fmtNum(rule.watch_boundary_do_mg_l, 1)} mg/L)</span>`) : ''}
-              ${Object.keys(rmse || {}).length ? raw('<span><i class="range"></i>Likely forecast range</span>') : ''}
-            </div>
+          <div class="aq-zoom do-trend-range" id="live-range">
+            <div class="aq-zoom-row"><div class="aq-zoom-presets" role="group" aria-label="How far back to show">${LIVE_RANGES.map((h) => raw(`<button type="button" data-live-range="${h}" class="${h === liveRange ? 'active' : ''}" aria-pressed="${h === liveRange}">${h}h</button>`))}</div></div>
+            <div class="aq-zoom-hint">Pick how far back to show. Tap or slide on the chart to read exact values.</div>
           </div>
           <div class="do-trend-chart" id="live-chart"></div>
           <div class="do-trend-value-grid">
@@ -252,7 +249,9 @@ export default async function live(root, ctx) {
         xTicks: ticks,
         xFormat: (dt) => relLabel(Math.round((dt - originT) / 60000)),
         xTickClass: (dt) => (Math.round((dt - originT) / 60000) === 0 ? 'tick-now' : ''),
-        legend: false,
+        legendExtra: rule.critical_do_mg_l !== null ? [
+          { cls: 'line dotted', color: '#e11d48', label: `Critical (≤ ${fmtNum(rule.critical_do_mg_l, 1)} mg/L)` },
+          { cls: 'line dotted', color: '#d97706', label: `Watch (${fmtNum(rule.critical_do_mg_l, 1)}–${fmtNum(rule.watch_boundary_do_mg_l, 1)} mg/L)` }] : [],
         panels: [{ title: 'Dissolved oxygen', unit: 'mg/L',
           domain: doDomain([...obsPts.map((q) => q.y), doValue, ...fcPts.map((q) => q.y), ...(band || []).flatMap((q) => [q.lo, q.hi])], rule),
           thresholds: rule.critical_do_mg_l !== null ? [
@@ -262,18 +261,20 @@ export default async function live(root, ctx) {
           series: [
             { name: 'Actual DO', color: DO_COLOR, width: 2.6, area: true, markers: 'ring', dots: false, points: obsPts },
             { name: 'Predicted DO (+30m, +1h, +1.5h, +2h)', color: FORECAST_COLOR, dotted: true, width: 2.6, dots: true,
-              band, bandTooltip: false,
+              band, bandTooltip: false, bandLabel: 'Likely forecast range (± typical error)',
               points: [{ x: originT, y: doValue, fill: DO_COLOR, r: 4.5 }, ...fcPts] },
           ] }],
         tooltipX: (dt) => { const m = Math.round((dt - originT) / 60000); return `${fmtTime(dt.toISOString())} · ${m === 0 ? 'now' : m > 0 ? `forecast ${relLabel(m)}` : `${relLabel(m).slice(1)} ago`}`; },
       });
     }
-    drawTrend();
+    const rangeBar = root.querySelector('#live-range');
+    const drawTrendInOrder = () => { drawTrend(); chartHost.before(rangeBar); }; // order: Show chips, range buttons, chart
+    drawTrendInOrder();
     root.querySelectorAll('[data-live-range]').forEach((b) => b.addEventListener('click', () => {
       liveRange = Number(b.dataset.liveRange);
       root.querySelectorAll('[data-live-range]').forEach((x) => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
       root.querySelector('#live-range-label').textContent = `${liveRange}h`;
-      drawTrend();
+      drawTrendInOrder();
     }));
 
     // a new reading since the last time this screen was drawn: let the DO value glow once

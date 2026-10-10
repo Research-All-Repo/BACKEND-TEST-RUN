@@ -516,3 +516,5 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
   .do-trend-more { grid-column: 1 / -1; justify-self: start; }
   .do-trend-toolbar { flex-direction: column; align-items: flex-start; }
 }
+.aq-chart-legend i.line.dotted { border-top-style: dotted; border-top-width: 2.5px; }
+.do-trend-range { margin-top: 2px; }
