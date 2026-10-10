@@ -379,3 +379,118 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .aq-nav .nav-grip line { stroke: #0d9488; stroke-width: 1.4; stroke-linecap: round; }
 .aq-nav .nav-grip { cursor: ew-resize; }
 .aq-nav.dragging, .aq-nav.dragging * { cursor: grabbing; }
+
+/* =====================================================================
+   UI polish layer (motion, touch and typography). Visual only: no behaviour changes.
+   Rules follow Emil Kowalski's design-engineering guidance: strong ease-out curves, UI motion
+   under 300 ms, press feedback on every control, hover effects only on real pointers,
+   nothing that moves the data people are reading, and gentler motion when "reduce motion" is on.
+   ===================================================================== */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ring: 0 0 0 1px #0f172a0f, 0 1px 2px #0f172a0a, 0 10px 28px -14px #0f172a24;
+}
+
+/* ---- type: each platform's own UI font (SF on iPhone, Roboto on Android, Segoe on Windows) ---- */
+body { font-family: var(--font-ui); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+button, input, select, textarea { font-family: inherit; }
+.aq-chart text { font-family: var(--font-ui); }
+.dashboard-header h2, .dashboard-panel h2 { letter-spacing: -0.02em; }
+.dashboard-panel h3, .auth2-heading h2 { letter-spacing: -0.012em; }
+.dashboard-panel h2, .dashboard-panel h3, .auth2-heading h2 { text-wrap: balance; }
+.dashboard-panel p { text-wrap: pretty; }
+/* numbers that update in place keep their width (no jiggle when 9.98 becomes 10.02) */
+.dashboard-panel strong, .dashboard-panel td, .aq-chart-readout, .aq-chart-tooltip, .aq-chart .tick, .aq-chart .end-label,
+.aq-chart .point-label, .live-do-value, .sidebar-badge, .system-status { font-variant-numeric: tabular-nums; }
+::selection { background: #99f6e480; }
+
+/* ---- surfaces: a soft shadow ring instead of a hard blue outline ---- */
+.dashboard-panel { border-color: transparent; box-shadow: var(--ring); }
+
+/* ---- mobile-native basics ---- */
+html { -webkit-tap-highlight-color: transparent; }
+button, a, label, [role="button"], .sidebar-item, .aq-series-toggle, .aq-zoom button, .aq-nav {
+  touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+/* iPhone zooms the page into any text box smaller than 16 px; give touch screens 16 px boxes */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
+}
+.dashboard-shell > .sidebar .sidebar-navigation, .aq-modal-scroll, [role="dialog"] { overscroll-behavior: contain; }
+/* hover lifts only where a real mouse can hover; on touch they used to stay "stuck" after a tap */
+@media (hover: none), (pointer: coarse) {
+  .auth2-primary-button:hover, .manual-aeration-button:hover, .manual-aeration-forecast-button:hover, .live-context-link:hover,
+  .operator-support-action:hover, .forecast-redesign-selector button:hover, .history2-export-button:hover, .alerts2-acknowledge-button:hover,
+  .activity2-record-button:hover, .summary-card:hover, .log-activity-button:hover, .aerator-action-button:hover, .forecast-horizon-card:hover,
+  .forecast-point-button:hover, .history-export-button:hover, .record-activity-button:hover, .compact-aerator-button:hover,
+  .view-forecast-button:hover, .model-retrain-button:hover, .save-preferences-button:hover, .reset-prototype-button:hover,
+  .auth-primary-button:hover, .dashboard-aeration-advisory-action:hover, .dashboard-content-inner button:hover, .dashboard-header button:hover {
+    transform: none !important; box-shadow: none;
+  }
+  .sensors2-table tbody tr:hover .sensors2-row-action svg { transform: none; }
+}
+.settings-toggle-slider, .settings-toggle-slider::before { transition: background-color .2s ease, transform .2s var(--ease-out), left .2s var(--ease-out); }
+
+/* ---- press feedback: every control answers the moment it is pressed ---- */
+body button:not(:disabled), .aq-series-toggle, .sidebar-item {
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease,
+    opacity .16s ease, filter .16s ease, transform .16s var(--ease-out), scale .16s var(--ease-out);
+}
+body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
+.dashboard-shell > .sidebar .sidebar-item:active { scale: 0.985; }
+:is(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid #0d9488; outline-offset: 2px; }
+
+/* ---- loading: no flash on fast loads, quicker spinner on slow ones ---- */
+.aq-page-loading { animation: aq-fade-in 200ms var(--ease-out) 150ms both; }
+.aq-spin { animation-duration: .7s; }
+@keyframes aq-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- toasts: rise from the bottom edge, leave the same way ---- */
+.aq-toast { transition: opacity 400ms ease, transform 400ms ease; }
+@starting-style { .aq-toast { opacity: 0; transform: translateY(100%); } }
+.aq-toast.leaving { opacity: 0; transform: translateY(12px); transition-duration: 200ms; transition-timing-function: var(--ease-out); }
+
+/* ---- phone menu: iOS-style drawer curve, backdrop fades with it ---- */
+@media (width <= 960px) {
+  .dashboard-shell > .sidebar { transition: transform 360ms var(--ease-drawer), box-shadow 360ms var(--ease-drawer); }
+  .dashboard-sidebar-backdrop { transition: opacity 240ms var(--ease-out); }
+  @starting-style { .dashboard-sidebar-backdrop { opacity: 0; } }
+}
+
+/* ---- dialogs: scale in from 0.96 (never from nothing), centred ---- */
+:is(.account-profile-modal, .activity2-modal, .sensors2-modal, .user2-modal, .settings2-modal, .activity-modal, .activity-log-modal,
+  .sensor-modal, .user-modal, .settings-reset-modal, .logout-confirm-modal) { transform-origin: center; animation: aq-dialog-in 220ms var(--ease-out) both; }
+@keyframes aq-dialog-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+.aq-risk-alert { animation-timing-function: var(--ease-out); }
+
+/* ---- a new reading arrives: the DO value glows briefly so nobody misses the update ---- */
+.live-do-value.aq-fresh { animation: aq-fresh 1.8s var(--ease-out); border-radius: 10px; }
+@keyframes aq-fresh { 0% { background-color: #99f6e4; box-shadow: 0 0 0 6px #99f6e4; } 100% { background-color: #99f6e400; box-shadow: 0 0 0 6px #99f6e400; } }
+
+/* ---- first screen after signing in: panels settle in one after another (once per sign-in) ---- */
+.aq-view.aq-first > * > * { animation: aq-rise 320ms var(--ease-out) both; }
+.aq-view.aq-first > * > *:nth-child(2) { animation-delay: 45ms; }
+.aq-view.aq-first > * > *:nth-child(3) { animation-delay: 90ms; }
+.aq-view.aq-first > * > *:nth-child(4) { animation-delay: 135ms; }
+.aq-view.aq-first > * > *:nth-child(n+5) { animation-delay: 180ms; }
+@keyframes aq-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* ---- reduce motion: keep fades and colour, drop movement ---- */
+@media (prefers-reduced-motion: reduce) {
+  .aq-view.aq-first > * > * { animation-name: aq-fade-in; }
+  .aq-toast, .aq-toast.leaving { transform: none !important; }
+  @starting-style { .aq-toast { transform: none; } }
+  body button:not(:disabled):active, .aq-series-toggle:active, .dashboard-shell > .sidebar .sidebar-item:active { scale: 1; }
+  :is(.account-profile-modal, .activity2-modal, .sensors2-modal, .user2-modal, .settings2-modal, .activity-modal, .activity-log-modal,
+    .sensor-modal, .user-modal, .settings-reset-modal, .logout-confirm-modal) { animation-name: aq-fade-in; }
+  .dashboard-shell > .sidebar { transition-duration: 0ms; }
+}
+@media (width <= 600px) {
+  .aq-toasts { left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); max-width: none; align-items: stretch; }
+}
+/* worst-case names: long account names / emails never push the sidebar or header apart */
+.dashboard-shell > .sidebar .sidebar-user-info, .dashboard-shell > .sidebar .sidebar-user-info > * { min-width: 0; }
+.dashboard-shell > .sidebar .sidebar-user-info strong, .dashboard-shell > .sidebar .sidebar-user-info span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

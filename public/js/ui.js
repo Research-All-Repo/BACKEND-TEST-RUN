@@ -110,7 +110,8 @@ export function toast(message, kind = '') {
   el.className = `aq-toast ${kind}`;
   el.innerHTML = icon(kind === 'error' ? 'triangle-alert' : kind === 'success' ? 'circle-check' : 'info', 16) + `<span>${esc(message)}</span>`;
   host.append(el);
-  setTimeout(() => el.remove(), kind === 'error' ? 7000 : 4500);
+  // leave the way it came (down), quickly, then remove
+  setTimeout(() => { el.classList.add('leaving'); setTimeout(() => el.remove(), 220); }, kind === 'error' ? 7000 : 4500);
 }
 
 const ERROR_TEXT = {

@@ -14,6 +14,9 @@ const ENV = [
   ['relative_humidity_pct', 'droplets', 'Relative Humidity', (v) => `${fmtNum(v, 0)} %`],
 ];
 
+// newest reading already shown on this device (kept while the app is open)
+let lastSeenObs = null;
+
 /** One or two plain sentences: where DO is now, how it moved, what the forecast says. */
 function liveSummary(d, series, doValue, rule) {
   if (doValue === null || doValue === undefined) return 'No valid dissolved oxygen reading in the latest cycle.';
@@ -189,6 +192,11 @@ export default async function live(root, ctx) {
         tooltipX: (dt) => { const m = Math.round((dt - originT) / 60000); return `${fmtDateTime(dt.toISOString())}${m > 0 ? ` · forecast +${m} min` : m === 0 ? ' · now' : ''}`; },
       });
     } else chartHost.innerHTML = '<div class="aq-state small"><strong>No observations yet</strong></div>';
+
+    // a new reading since the last time this screen was drawn: let the DO value glow once
+    const obsKey = o?.timestamp_utc || null;
+    if (obsKey && lastSeenObs && obsKey !== lastSeenObs) root.querySelectorAll('.live-do-value').forEach((el) => el.classList.add('aq-fresh'));
+    if (obsKey) lastSeenObs = obsKey;
 
     if (firstRender && ctx.opts?.focus === 'aeration') {
       root.querySelector('#aeration-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' });

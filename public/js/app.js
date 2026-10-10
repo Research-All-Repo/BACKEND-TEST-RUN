@@ -159,6 +159,7 @@ function wireAuthLinks() {
 // Dashboard shell
 // =====================================================================
 function enterApp(profile) {
+  state.firstView = true;
   state.profile = profile;
   const isAdmin = profile.role === 'ADMIN';
   root.innerHTML = html`<div class="dashboard-shell">
@@ -253,6 +254,11 @@ async function route(opts) {
   const view = document.createElement('div');
   view.className = 'aq-view';
   view.innerHTML = loadingBox();
+  if (state.firstView) { // the first screen after signing in settles in panel by panel (once)
+    state.firstView = false;
+    view.classList.add('aq-first');
+    setTimeout(() => view.classList.remove('aq-first'), 3000);
+  }
   host.replaceChildren(view);
   window.scrollTo(0, 0);
   const current = () => state.navToken === token;
