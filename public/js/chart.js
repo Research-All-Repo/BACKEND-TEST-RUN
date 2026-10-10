@@ -10,7 +10,7 @@
 //   ariaLabel, height,                       // total px height (optional; else host CSS height)
 //   panels: [{
 //     title, unit, weight,                   // panel header "Dissolved oxygen (mg/L)"; weight = share of height
-//     series: [{ name, color, dashed, width, dots, format, endLabel, points: [{ x, y, fill, r }],
+//     series: [{ name, color, dashed, width, dots, format, endLabel, noTooltip, points: [{ x, y, fill, r, label, note }],
 //                band: [{ x, lo, hi }], bandLabel }],      // optional min–max range drawn as a light area
 //     right: { title, unit, format, domain },  // second scale for series with axis: 'right' (overlaid comparison)
 //     zones: [{ from, to, fill, label }],    // y-bands (left scale), e.g. Normal / Below boundary / Critical
@@ -100,15 +100,36 @@ export function mountChart(host, rawConfig) {
   if (config.height) host.style.height = `${config.height}px`;
   let legendEl = null;
   let readoutEl = null;
-  // ---- zoom: a window [v0, v1] over the full time range, chosen with preset buttons or the
-  // overview strip ("navigator") under the chart. Only used when there are many points.
+  // ---- zoom: a window [v0, v1] over the full time range. Phones: pinch the chart with two fingers
+  // (move both fingers to slide). Laptops: drag across the chart, double-click, or pinch the touchpad.
+  // Buttons: range presets, zoom out / in, earlier / later. Only used when there are many points.
   const fullPts = config.panels.flatMap((p) => p.series.flatMap((se) => se.points)).filter(valid);
   const fx0 = Math.min(...fullPts.map((q) => +q.x)); const fx1 = Math.max(...fullPts.map((q) => +q.x));
   const navSeries = config.panels[0]?.series.find((se) => se.type !== 'bars');
-  const useNav = !!config.navigator && navSeries && navSeries.points.filter(valid).length >= 48 && fx1 - fx0 >= 3 * HOUR;
+  const useZoom = !!config.navigator && navSeries && navSeries.points.filter(valid).length >= 48 && fx1 - fx0 >= 3 * HOUR;
+  const minSpan = Math.max(45 * MIN, (fx1 - fx0) / 60);
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   let view = null;
   let zoomBar = null;
-  if (useNav) {
+  let geo = null; // geometry of the last drawing, used to turn finger / mouse positions into times
+  let raf = 0;
+  const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+  function setView(a, b) {
+    if (b - a < minSpan) { const c = (a + b) / 2; a = c - minSpan / 2; b = c + minSpan / 2; }
+    const span = Math.min(fx1 - fx0, b - a);
+    const start = Math.max(fx0, Math.min(fx1 - span, a));
+    const next = span >= fx1 - fx0 - 60_000 ? null : [start, start + span];
+    if (String(next) === String(view)) return;
+    view = next; redraw();
+  }
+  function zoomBy(factor, t, f = 0.5) { // factor < 1 zooms in; time t stays at fraction f of the width
+    const v = view || [fx0, fx1];
+    const ns = Math.min(fx1 - fx0, Math.max(minSpan, (v[1] - v[0]) * factor));
+    const at = t ?? v[0] + f * (v[1] - v[0]);
+    setView(at - f * ns, at - f * ns + ns);
+  }
+  function panBy(frac) { const v = view || [fx0, fx1]; const d = (v[1] - v[0]) * frac; setView(v[0] + d, v[1] + d); }
+  if (useZoom) {
     zoomBar = document.createElement('div');
     zoomBar.className = 'aq-zoom';
     host.before(zoomBar);
@@ -116,23 +137,100 @@ export function mountChart(host, rawConfig) {
   function renderZoomBar() {
     if (!zoomBar) return;
     const span = fx1 - fx0;
-    const presets = [[null, 'Whole range'], [12 * HOUR, '12 h'], [6 * HOUR, '6 h'], [3 * HOUR, '3 h']].filter(([ms]) => ms === null || ms < span * 0.9);
+    const v = view || [fx0, fx1];
+    const presets = [[null, 'All'], [12 * HOUR, '12 h'], [6 * HOUR, '6 h'], [3 * HOUR, '3 h']].filter(([ms]) => ms === null || ms < span * 0.9);
     if (span > 3 * DAY) presets.splice(1, 0, [3 * DAY, '3 days'], [DAY, '1 day']);
-    const cur = view ? view[1] - view[0] : null;
+    const cur = v[1] - v[0];
     zoomBar.innerHTML = '';
-    const label = document.createElement('span'); label.className = 'aq-zoom-label'; label.textContent = 'Zoom';
-    zoomBar.append(label);
+    const row = document.createElement('div'); row.className = 'aq-zoom-row';
+    const group = document.createElement('div'); group.className = 'aq-zoom-presets'; group.setAttribute('role', 'group'); group.setAttribute('aria-label', 'Time range shown');
     for (const [ms, text] of presets) {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = text;
       const active = ms === null ? !view : view && Math.abs(cur - ms) < 60_000 && view[1] >= fx1 - 60_000;
-      if (active) b.className = 'active';
+      if (active) { b.className = 'active'; b.setAttribute('aria-pressed', 'true'); }
       b.addEventListener('click', () => { view = ms === null ? null : [fx1 - ms, fx1]; draw(); });
-      zoomBar.append(b);
+      group.append(b);
     }
-    const hint = document.createElement('span'); hint.className = 'aq-zoom-hint';
-    hint.textContent = view ? `Showing ${fmt({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(view[0])} – ${fmt({ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(view[1])} · drag the strip below the chart to move`
-      : 'Drag across the strip below the chart to zoom in';
-    zoomBar.append(hint);
+    const tools = document.createElement('div'); tools.className = 'aq-zoom-tools';
+    const tool = (glyph, label, fn, disabled) => {
+      const b = document.createElement('button'); b.type = 'button'; b.innerHTML = glyph; b.title = label; b.setAttribute('aria-label', label);
+      b.disabled = !!disabled; b.addEventListener('click', fn); tools.append(b);
+    };
+    const svgI = (d) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    tool(svgI('<path d="m15 18-6-6 6-6"/>'), 'Show earlier', () => panBy(-0.5), !view || v[0] <= fx0 + 60_000);
+    tool(svgI('<path d="M5 12h14"/>'), 'Zoom out', () => zoomBy(2), !view);
+    tool(svgI('<path d="M5 12h14M12 5v14"/>'), 'Zoom in', () => zoomBy(0.5), cur <= minSpan + 60_000);
+    tool(svgI('<path d="m9 18 6-6-6-6"/>'), 'Show later', () => panBy(0.5), !view || v[1] >= fx1 - 60_000);
+    row.append(group, tools);
+    const hint = document.createElement('div'); hint.className = 'aq-zoom-hint';
+    const range = view ? `Showing ${fmt({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(view[0])} – ${fmt(view[1] - view[0] > DAY ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } : { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(view[1])}. ` : '';
+    hint.textContent = range + (coarse ? 'Pinch the chart with two fingers to zoom; slide both fingers to move.' : 'Drag across the chart to zoom into that period, or double-click a spot.');
+    zoomBar.append(row, hint);
+  }
+  if (useZoom) attachZoomGestures();
+  function attachZoomGestures() {
+    const frac = (clientX) => { const r = host.getBoundingClientRect(); return Math.min(1, Math.max(0, (((clientX - r.left) / r.width) * geo.W - geo.l) / geo.plotW)); };
+    const timeAt = (clientX) => geo.x0 + frac(clientX) * (geo.x1 - geo.x0);
+    // two-finger pinch (phones / tablets). The chart is redrawn while pinching and the element under the
+    // finger is replaced, so move/end listeners go on the touched element itself (touch events keep
+    // firing there even after it leaves the page) as well as on the chart box.
+    let pinch = null;
+    const dist = (t) => Math.max(24, Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY));
+    const onMove = (e) => {
+      if (!pinch || e.touches.length < 2) return;
+      if (e.cancelable) e.preventDefault();
+      const mid = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const f = frac(mid);
+      const ns = Math.min(fx1 - fx0, Math.max(minSpan, pinch.span * (pinch.d0 / dist(e.touches))));
+      setView(pinch.t - f * ns, pinch.t - f * ns + ns);
+    };
+    const onEnd = (e) => {
+      if (!pinch || e.touches.length >= 2) return;
+      pinch.el.removeEventListener('touchmove', onMove); pinch.el.removeEventListener('touchend', onEnd); pinch.el.removeEventListener('touchcancel', onEnd);
+      pinch = null; host.classList.remove('is-pinching');
+    };
+    host.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 2 || !geo || pinch) return;
+      const mid = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      pinch = { d0: dist(e.touches), t: timeAt(mid), span: geo.x1 - geo.x0, el: e.target };
+      host.classList.add('is-pinching');
+      if (e.target !== host) { e.target.addEventListener('touchmove', onMove, { passive: false }); e.target.addEventListener('touchend', onEnd); e.target.addEventListener('touchcancel', onEnd); }
+    }, { passive: true });
+    host.addEventListener('touchmove', (e) => { if (pinch && pinch.el === host) onMove(e); else if (pinch && e.cancelable) e.preventDefault(); }, { passive: false });
+    host.addEventListener('touchend', (e) => { if (pinch?.el === host) onEnd(e); });
+    host.addEventListener('gesturestart', (e) => e.preventDefault()); // iPhone: zoom the chart, not the page
+    // laptop: ctrl + scroll wheel, which is also what a touchpad pinch sends
+    host.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey || !geo) return;
+      e.preventDefault();
+      zoomBy(Math.exp(Math.max(-1, Math.min(1, e.deltaY * 0.01))), timeAt(e.clientX), frac(e.clientX));
+    }, { passive: false });
+    // laptop: drag across the chart to zoom into that period
+    host.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0 || !geo) return;
+      const r = host.getBoundingClientRect(); const k = r.width / geo.W;
+      const py = (e.clientY - r.top) / k;
+      if (py < geo.top || py > geo.bottom) return;
+      const sx0 = e.clientX; let sel = null;
+      const lo = r.left + geo.l * k; const hi = lo + geo.plotW * k;
+      const move = (ev) => {
+        const cx = Math.min(hi, Math.max(lo, ev.clientX));
+        if (!sel && Math.abs(cx - sx0) < 6) return;
+        if (!sel) { sel = document.createElement('div'); sel.className = 'aq-zoom-select'; sel.style.top = `${geo.top * k}px`; sel.style.height = `${(geo.bottom - geo.top) * k}px`; host.append(sel); host.classList.add('is-selecting'); }
+        const a = Math.min(cx, Math.max(lo, sx0)); const b = Math.max(cx, Math.min(hi, sx0));
+        sel.style.left = `${a - r.left}px`; sel.style.width = `${b - a}px`;
+      };
+      const up = (ev) => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+        host.classList.remove('is-selecting');
+        if (!sel) return;
+        sel.remove();
+        const a = timeAt(sx0); const b = timeAt(ev.clientX);
+        setView(Math.min(a, b), Math.max(a, b));
+      };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    });
+    host.addEventListener('dblclick', (e) => { if (geo) zoomBy(0.5, timeAt(e.clientX), frac(e.clientX)); });
   }
   const ro = new ResizeObserver(() => draw());
   ro.observe(host);
@@ -171,8 +269,7 @@ export function mountChart(host, rawConfig) {
     const GAP = 16;
     const strip = config.strip && config.strip.items?.length ? config.strip : null;
     const STRIP = strip ? 26 : 0;
-    const NAV = useNav ? 50 : 0;
-    const fixed = M.t + M.b + NAV + P.reduce((a, p) => a + titleH(p), 0) + (P.length - 1) * GAP + STRIP;
+    const fixed = M.t + M.b + P.reduce((a, p) => a + titleH(p), 0) + (P.length - 1) * GAP + STRIP;
     const totalW = P.reduce((s, p) => s + (p.weight || 1), 0);
     const avail = Math.max(80, H - fixed);
 
@@ -288,6 +385,7 @@ export function mountChart(host, rawConfig) {
         const mx = sx(+p.marker.x);
         s += `<line class="marker" x1="${mx}" x2="${mx}" y1="${top}" y2="${top + h}"/>`;
         s += `<text class="marker-label" x="${mx + 5}" y="${top + 11}">${esc(p.marker.label || '')}</text>`;
+        L.placed = [{ x0: mx + 3, x1: mx + 7 + (p.marker.label || '').length * 6.5, y0: top, y1: top + 14 }];
       }
       // series
       for (const se of p.series) {
@@ -336,6 +434,22 @@ export function mountChart(host, rawConfig) {
           for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x)}" cy="${sy(pt.y)}" r="${pt.r || 4}" fill="${pt.fill || se.color}" stroke="#fff" stroke-width="2"/>`;
         }
         const f = se.format || ((v) => v.toFixed(2));
+        // value printed next to chosen points (pt.label), kept inside the plot
+        // (labels that would collide with another label or the marker move below the point, or are skipped)
+        L.placed = L.placed || [];
+        for (const pt of se.points) {
+          if (!valid(pt) || !pt.label) continue;
+          const tw = pt.label.length * 7 + 4;
+          const tx = Math.min(Math.max(sx(+pt.x), M.l + tw / 2), M.l + plotW - tw / 2);
+          const box = (ty) => ({ x0: tx - tw / 2, x1: tx + tw / 2, y0: ty - 11, y1: ty + 2 });
+          const free = (b) => b.y0 >= top && b.y1 <= top + h && !L.placed.some((q) => b.x0 < q.x1 && b.x1 > q.x0 && b.y0 < q.y1 && b.y1 > q.y0);
+          const above = box(sy(pt.y) - 10); const below = box(sy(pt.y) + 19);
+          const pick = pt.labelBelow ? [below, above] : [above, below];
+          const b = pick.find(free);
+          if (!b) continue;
+          L.placed.push(b);
+          s += `<text class="point-label" x="${tx}" y="${b.y1 - 2}" text-anchor="middle">${esc(pt.label)}</text>`;
+        }
         if (se.endLabel && !R) {
           const last = [...se.points].reverse().find(valid);
           if (last) {
@@ -386,23 +500,7 @@ export function mountChart(host, rawConfig) {
       s += `<text class="tick" x="${tx}" y="${bottom + 15}" text-anchor="${anchor}">${esc(tk.main)}</text>`;
       if (tk.sub) s += `<text class="tick-sub" x="${tx}" y="${bottom + 28}" text-anchor="${anchor}">${esc(tk.sub)}</text>`;
     }
-    // overview strip: the whole range in miniature with the zoom window on top
-    let nav = null;
-    if (useNav) {
-      const nt = H - 40; const nh = 32;
-      const nsx = (x) => M.l + ((x - fx0) / (fx1 - fx0)) * plotW;
-      const np = navSeries.points.filter(valid);
-      const nlo = Math.min(...np.map((q) => q.y)); const nhi = Math.max(...np.map((q) => q.y));
-      const nsy = (v) => nt + nh - 3 - ((v - nlo) / ((nhi - nlo) || 1)) * (nh - 6);
-      let d = ''; np.forEach((q, i) => { d += `${i ? 'L' : 'M'}${nsx(+q.x).toFixed(1)},${nsy(q.y).toFixed(1)}`; });
-      const wl = view ? nsx(view[0]) : M.l; const wr = view ? nsx(view[1]) : M.l + plotW;
-      s += `<g class="nav"><rect class="nav-bg" x="${M.l}" y="${nt}" width="${plotW}" height="${nh}" rx="6"/>`;
-      s += `<path d="${d}" fill="none" stroke="${navSeries.color}" stroke-width="1.2" stroke-opacity="0.7"/>`;
-      s += `<rect class="nav-shade" x="${M.l}" y="${nt}" width="${Math.max(0, wl - M.l)}" height="${nh}"/><rect class="nav-shade" x="${wr}" y="${nt}" width="${Math.max(0, M.l + plotW - wr)}" height="${nh}"/>`;
-      s += `<rect class="nav-window" x="${wl}" y="${nt}" width="${Math.max(2, wr - wl)}" height="${nh}" rx="6"/>`;
-      s += `<rect class="nav-handle" x="${wl - 4}" y="${nt + 7}" width="8" height="${nh - 14}" rx="3"/><rect class="nav-handle" x="${wr - 4}" y="${nt + 7}" width="8" height="${nh - 14}" rx="3"/></g>`;
-      nav = { nt, nh, nsx, wl, wr, toX: (px) => fx0 + ((px - M.l) / plotW) * (fx1 - fx0) };
-    }
+    geo = { W, H, l: M.l, plotW, x0, x1, top: layout[0].top, bottom };
     s += `<line class="hover-line" x1="0" x2="0" y1="${layout[0].top}" y2="${bottom}" visibility="hidden"/><g class="hover-dots"></g>`;
     s += `<rect class="hit" x="${M.l}" y="${M.t}" width="${plotW}" height="${bottom - M.t}" fill="transparent"/>`;
 
@@ -411,7 +509,7 @@ export function mountChart(host, rawConfig) {
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('role', 'img');
     svg.setAttribute('tabindex', '0');
-    svg.setAttribute('aria-label', `${config.ariaLabel || 'Chart'}. Use the left and right arrow keys to read values.`);
+    svg.setAttribute('aria-label', `${config.ariaLabel || 'Chart'}. Use the left and right arrow keys to read values${useZoom ? ', plus and minus to zoom' : ''}.`);
     svg.innerHTML = s;
     host.append(svg);
     // place each right-hand title's line key just left of the measured title text
@@ -419,39 +517,6 @@ export function mountChart(host, rawConfig) {
       const key = svg.querySelectorAll('.right-key')[i];
       try { const w = t.getComputedTextLength(); key.setAttribute('x1', W - 2 - w - 20); key.setAttribute('x2', W - 2 - w - 6); } catch { /* keep estimate */ }
     });
-
-    // ---------- overview strip: drag to zoom / pan ----------
-    if (nav) {
-      // measure against the host: the svg itself is replaced on every redraw while dragging
-      const toSvg = (e) => { const r = host.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H }; };
-      const minSpan = Math.max(45 * MIN, (fx1 - fx0) / 60);
-      svg.addEventListener('pointerdown', (e) => {
-        const pt = toSvg(e);
-        if (pt.y < nav.nt - 4 || pt.y > nav.nt + nav.nh + 4) return;
-        e.preventDefault(); e.stopPropagation();
-        const v = view || [fx0, fx1];
-        let mode = 'pan';
-        if (Math.abs(pt.x - nav.wl) < 12) mode = 'left';
-        else if (Math.abs(pt.x - nav.wr) < 12) mode = 'right';
-        else if (pt.x < nav.wl || pt.x > nav.wr || !view) mode = 'new';
-        const startX = nav.toX(pt.x); const start = [...v];
-        let raf = 0;
-        const move = (ev) => {
-          const x = Math.min(fx1, Math.max(fx0, nav.toX(toSvg(ev).x)));
-          let nv;
-          if (mode === 'left') nv = [Math.min(x, start[1] - minSpan), start[1]];
-          else if (mode === 'right') nv = [start[0], Math.max(x, start[0] + minSpan)];
-          else if (mode === 'new') nv = [Math.min(startX, x), Math.max(startX, x)];
-          else { const dx = x - startX; const span = start[1] - start[0]; let a = start[0] + dx; a = Math.max(fx0, Math.min(fx1 - span, a)); nv = [a, a + span]; }
-          if (nv[1] - nv[0] < minSpan) { if (mode !== 'new') return; const c = (nv[0] + nv[1]) / 2; nv = [Math.max(fx0, c - minSpan / 2), Math.min(fx1, c + minSpan / 2)]; }
-          view = nv[0] <= fx0 + 60_000 && nv[1] >= fx1 - 60_000 ? null : nv;
-          if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); });
-        };
-        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
-        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
-        if (mode === 'new') move(e);
-      }, { capture: true });
-    }
 
     // ---------- hover / keyboard crosshair ----------
     // desktop: floating tooltip next to the crosshair; phone: a fixed read-out under the chart
@@ -476,6 +541,7 @@ export function mountChart(host, rawConfig) {
       const head = document.createElement('strong'); head.textContent = tf(new Date(xv)); tip.append(head);
       for (const L of layout) {
         for (const se of L.p.series) {
+          if (se.noTooltip) continue;
           const pt = se.type === 'bars' && se.bucketMs
             ? se.points.find((q) => xv >= +q.x - se.bucketMs / 2 && xv < +q.x + se.bucketMs / 2)
             : se.points.find((q) => +q.x === xv);
@@ -489,7 +555,7 @@ export function mountChart(host, rawConfig) {
           const name = document.createElement('em'); name.textContent = se.name;
           row.append(key, val, name); tip.append(row);
           if (pt.note) { const nt = document.createElement('em'); nt.className = 'range'; nt.textContent = pt.note; tip.append(nt); }
-          const bq = se.band?.find((q) => +q.x === xv);
+          const bq = se.bandTooltip === false ? null : se.band?.find((q) => +q.x === xv);
           if (bq && Number.isFinite(bq.lo) && bq.hi - bq.lo > 0.005) {
             const rg = document.createElement('em'); rg.className = 'range'; rg.textContent = `Range in this period: ${fv(bq.lo)}–${fv(bq.hi)}`; tip.append(rg);
           }
@@ -539,6 +605,8 @@ export function mountChart(host, rawConfig) {
       if (e.key === 'Home') { e.preventDefault(); show(0); }
       if (e.key === 'End') { e.preventDefault(); show(uniqX.length - 1); }
       if (e.key === 'Escape') hide();
+      if (useZoom && (e.key === '+' || e.key === '=')) { e.preventDefault(); zoomBy(0.5, idx >= 0 ? uniqX[idx] : undefined); }
+      if (useZoom && (e.key === '-' || e.key === '_')) { e.preventDefault(); zoomBy(2, idx >= 0 ? uniqX[idx] : undefined); }
     });
 
     // ---------- legend ----------
@@ -573,6 +641,16 @@ export function mountChart(host, rawConfig) {
 export const DO_COLOR = '#0d9488';
 export const FORECAST_COLOR = '#6250d6';
 export const CONTEXT_COLOR = '#2a78d6';
+
+/** Y-range fitted to the DO readings, pulling in the 5.0 / 3.0 lines only when DO gets close to them. */
+export function doDomain(values, rule) {
+  const vals = values.filter(Number.isFinite);
+  if (!vals.length) return undefined;
+  let lo = Math.min(...vals); let hi = Math.max(...vals);
+  for (const t of [rule?.watch_boundary_do_mg_l, rule?.critical_do_mg_l]) if (Number.isFinite(t) && lo - t < 1.5) { lo = Math.min(lo, t - 0.3); hi = Math.max(hi, t + 0.3); }
+  const pad = Math.max(0.4, (hi - lo) * 0.18);
+  return [Math.max(0, lo - pad), hi + pad];
+}
 
 /** Coloured y-bands for dissolved oxygen, labelled in plain words. */
 export function doZones(rule) {

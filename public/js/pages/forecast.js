@@ -2,7 +2,7 @@
 // the official risk assessment built from them, interpretation, decision support, forecast-vs-observed.
 import { get, qs } from '../api.js';
 import { html, raw, ic, fmtNum, fmtTime, fmtDateTime, riskKey, riskLabel, doBand, guidanceFor, errorBox } from '../ui.js';
-import { mountChart, doZones, doThresholds, DO_COLOR, FORECAST_COLOR } from '../chart.js';
+import { mountChart, doZones, doThresholds, doDomain, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 import { accuracyChartConfig } from './shared.js';
 
 const BAND_LABEL = { normal: 'NORMAL RANGE', watch: 'WATCH RANGE', critical: '≤ CRITICAL THRESHOLD', unknown: 'DATA UNAVAILABLE' };
@@ -34,6 +34,24 @@ function interpretation(risk, cur, rule, firstCrit, firstSub) {
     default: return { title: 'Risk classification is unavailable.', text: 'AquaCast does not have enough valid information to establish the risk state for this monitoring cycle.',
       why: 'Verify the current observation, forecast availability, and edge device status.', timing: 'Unavailable' };
   }
+}
+
+/** Plain-language outlook for the next 2 hours, shown above the chart. */
+function outlookText(cur, hz, rule, originIso) {
+  const w = rule.watch_boundary_do_mg_l; const c = rule.critical_do_mg_l;
+  const ok = hz.filter((h) => h.forecast_status === 'VALID');
+  if (cur === null || !ok.length) return 'Not enough valid data to describe the next 2 hours.';
+  const last = ok[ok.length - 1];
+  const at = (h) => fmtTime(new Date(new Date(originIso).getTime() + h.horizon_minutes * 60000).toISOString());
+  const diff = last.predicted_do_mg_l - cur;
+  const move = Math.abs(diff) < 0.15 ? `stay about the same (${fmtNum(last.predicted_do_mg_l)} mg/L)` : `${diff > 0 ? 'rise' : 'fall'} to <strong>${fmtNum(last.predicted_do_mg_l)} mg/L</strong>`;
+  let txt = `DO is <strong>${fmtNum(cur)} mg/L</strong> now and is expected to ${move} by ${at(last)}.`;
+  const crit = ok.find((h) => h.predicted_do_mg_l <= c);
+  const sub = ok.find((h) => h.predicted_do_mg_l < w);
+  if (crit) txt += ` <strong>It is forecast to reach the critical ${fmtNum(c, 1)} mg/L level around ${at(crit)} (+${crit.horizon_minutes} min).</strong>`;
+  else if (sub) txt += ` It is forecast to drop below the ${fmtNum(w, 1)} mg/L normal boundary around ${at(sub)} (+${sub.horizon_minutes} min), but stay above critical.`;
+  else txt += ` All four forecasts stay in the normal range (at or above ${fmtNum(w, 1)} mg/L).`;
+  return txt;
 }
 
 export default async function forecast(root) {
@@ -79,8 +97,8 @@ export default async function forecast(root) {
 
     <section class="dashboard-panel forecast-redesign-analysis">
       <div class="forecast-analysis-header">
-        <div class="forecast-analysis-title">${ic('trending-down', 19)}<div><h3>Forecast Progression</h3><p>Observed forecast origin followed by predictions at +30, +60, +90, and +120 minutes.</p></div></div>
-        <div class="forecast-analysis-outlook">${firstCrit ? raw(html`The configured critical threshold is first reached at <strong>+${firstCrit.horizon_minutes} min</strong>.`) : 'None of the current forecasts reaches the configured critical threshold within 120 minutes.'}</div>
+        <div class="forecast-analysis-title">${ic('trending-down', 19)}<div><h3>Where DO Is Heading</h3><p>Solid line: measured in the last 2 hours. Dashed line: the four forecasts for the next 2 hours.</p></div></div>
+        <div class="forecast-analysis-outlook forecast-outlook-${firstCrit ? 'critical' : firstSub ? 'watch' : 'normal'}">${raw(outlookText(cur, hz, rule, d.origin.forecast_origin_utc))}</div>
       </div>
       <div class="forecast-redesign-chart" id="fc-chart"></div>
       <div class="forecast-redesign-selector forecast-four-selector">
@@ -114,7 +132,7 @@ export default async function forecast(root) {
 
     <section class="dashboard-panel forecast-redesign-analysis">
       <div class="forecast-analysis-header">
-        <div class="forecast-analysis-title">${ic('activity', 19)}<div><h3>How Accurate Were Recent Forecasts? (last 24 h)</h3><p>Each forecast is drawn at the time it was predicting, next to the DO actually measured then.</p></div></div>
+        <div class="forecast-analysis-title">${ic('activity', 19)}<div><h3>How Accurate Were Recent Forecasts? (last 24 h)</h3><p>Solid line: what was measured. Dashed line: what the model had forecast for that same time. If the dashed line stays inside the light band, the forecast was accurate.</p></div></div>
         <div class="history2-select-wrapper"><select id="fvo-h">${[30, 60, 90, 120].map((h) => raw(`<option value="${h}" ${h === 60 ? 'selected' : ''}>+${h} min horizon</option>`))}</select>${ic('chevron-down', 15)}</div>
       </div>
       <p class="aq-chart-summary" id="fvo-summary"></p>
@@ -123,15 +141,21 @@ export default async function forecast(root) {
   </div>`;
 
   const origin = new Date(d.origin.forecast_origin_utc);
-  charts.push(mountChart(root.querySelector('#fc-chart'), {
-    ariaLabel: 'Forecast progression from now to 120 minutes ahead',
-    panels: [{ title: 'Forecast dissolved oxygen', unit: 'mg/L', includeThresholds: true, zones: doZones(rule), thresholds: doThresholds(rule),
-      series: [{ name: 'Forecast DO', color: FORECAST_COLOR, dashed: true, dots: true,
-        points: [{ x: origin, y: cur, fill: DO_COLOR, r: 5 }, ...hz.map((h) => ({ x: new Date(origin.getTime() + h.horizon_minutes * 60000), y: h.forecast_status === 'VALID' ? h.predicted_do_mg_l : null }))] }] }],
-    xTicks: [0, 30, 60, 90, 120].map((m) => new Date(origin.getTime() + m * 60000)),
-    xFormat: (dt, o) => { const m = Math.round((dt - origin) / 60000); return m <= 0 ? 'Now' : o?.narrow ? `+${m}m` : `+${m} min`; },
-    tooltipX: (dt) => { const m = Math.round((dt - origin) / 60000); return m <= 0 ? `Now (observed) · ${fmtTime(dt.toISOString())}` : `+${m} min forecast · ${fmtTime(dt.toISOString())}`; },
-    legend: false,
+  const fcHost = root.querySelector('#fc-chart');
+  const recent = await get(`/api/history/observations${qs({ from: new Date(origin - 2 * 3600e3).toISOString(), to: new Date(origin.getTime() + 1000).toISOString(), order: 'asc', page_size: 30 })}`)
+    .then((r) => r.data).catch(() => []);
+  const fcPts = hz.map((h) => ({ x: new Date(origin.getTime() + h.horizon_minutes * 60000), y: h.forecast_status === 'VALID' ? h.predicted_do_mg_l : null, label: h.forecast_status === 'VALID' && h.horizon_minutes < 120 ? fmtNum(h.predicted_do_mg_l) : '' }));
+  const obsPts = recent.map((r) => ({ x: new Date(r.timestamp_utc), y: r.do_mg_l_status === 'VALID' ? r.do_mg_l : null }));
+  charts.push(mountChart(fcHost, {
+    ariaLabel: 'Dissolved oxygen: last 2 hours measured and the next 2 hours forecast',
+    panels: [{ title: 'Dissolved oxygen', unit: 'mg/L', zones: doZones(rule), thresholds: doThresholds(rule), domain: doDomain([...obsPts, ...fcPts].map((q) => q.y).concat(cur), rule),
+      marker: { x: origin, label: 'Now' },
+      series: [
+        { name: 'Measured (last 2 h)', color: DO_COLOR, width: 2.6, dots: false, points: obsPts.length ? obsPts : [{ x: origin, y: cur }] },
+        { name: 'Forecast (next 2 h)', color: FORECAST_COLOR, dashed: true, dots: true, width: 2.2, endLabel: true,
+          points: [{ x: origin, y: cur, fill: DO_COLOR, r: 5 }, ...fcPts] },
+      ] }],
+    tooltipX: (dt) => { const m = Math.round((dt - origin) / 60000); return m < 0 ? `${fmtTime(dt.toISOString())} · measured` : m === 0 ? `Now · ${fmtTime(dt.toISOString())}` : `${fmtTime(dt.toISOString())} · forecast +${m} min`; },
   }));
 
   const inspector = root.querySelector('#fc-inspector');
@@ -166,7 +190,8 @@ export default async function forecast(root) {
         const mae = errs.reduce((a, e) => a + Math.abs(e), 0) / errs.length;
         const within = Math.round((errs.filter((e) => Math.abs(e) <= 0.3).length / errs.length) * 100);
         const bias = errs.reduce((a, e) => a + e, 0) / errs.length;
-        sumBox.innerHTML = html`Over the last 24 hours the <strong>+${h} min</strong> forecast missed the measured DO by <strong>${fmtNum(mae)} mg/L</strong> on average, and was within ±0.3 mg/L <strong>${within}%</strong> of the time. ${Math.abs(bias) < 0.05 ? 'It shows no consistent over- or under-prediction.' : `It tends to ${bias > 0 ? 'over' : 'under'}-predict by about ${fmtNum(Math.abs(bias))} mg/L.`}`;
+        const misses = errs.filter((e) => Math.abs(e) > 0.3).length;
+        sumBox.innerHTML = html`<span class="aq-acc-score ${within >= 80 ? 'good' : within >= 60 ? 'fair' : 'poor'}">${within}% accurate</span> In the last 24 hours, <strong>${within}%</strong> of the +${h} min forecasts landed within ±0.3 mg/L of the measured DO${misses ? raw(html` (<strong>${misses}</strong> missed, shown as orange dots)`) : ''}. On average they were off by <strong>${fmtNum(mae)} mg/L</strong>. ${Math.abs(bias) < 0.05 ? 'They were not consistently too high or too low.' : `They tended to be ${bias > 0 ? 'a little too high' : 'a little too low'} (by about ${fmtNum(Math.abs(bias))} mg/L).`}`;
       } else sumBox.textContent = 'No forecast in the last 24 hours has a measured value to compare with yet.';
       fvo = mountChart(fvoHost, accuracyChartConfig(pairs.map((p) => ({ t: p.target_timestamp_utc, measured: p.observed_do_mg_l, forecast: p.predicted_do_mg_l })), h, rule));
     } catch (err) { fvoHost.innerHTML = errorBox(err); }

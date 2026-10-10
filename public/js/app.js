@@ -196,7 +196,7 @@ function enterApp(profile) {
         </div>
         <div class="aq-header-right">
           <button type="button" class="aq-header-alerts" data-open="alerts" aria-label="Alerts and app settings for this device" title="Alerts &amp; app settings">${ic('bell-ring', 18)}<span>Alerts</span></button>
-          <div class="system-status" id="system-status"><span class="status-dot"></span>${roleLabel(profile.role)}</div>
+          <div class="system-status" id="system-status" title="Signed in as ${roleLabel(profile.role)}"><span class="status-dot"></span><span class="role-full">${roleLabel(profile.role)}</span><span class="role-short">${profile.role === 'ADMIN' ? 'Admin' : 'Staff'}</span></div>
         </div>
       </div></header>
       <section class="dashboard-content"><div class="dashboard-content-inner">

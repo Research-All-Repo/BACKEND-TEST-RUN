@@ -115,38 +115,30 @@ export function wirePagination(container, onChange) {
  * pairs: [{ t: ISO target time, measured, forecast }]
  */
 export function accuracyChartConfig(pairs, horizon, rule, { tol = 0.3, label = 'Forecast' } = {}) {
-  const HOUR = 3600_000;
-  const groups = new Map();
-  for (const p of pairs) {
-    const t = new Date(p.t).getTime();
-    const k = Math.floor(t / HOUR) * HOUR;
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(p.forecast - p.measured);
-  }
-  const bars = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([k, errs]) => {
-    const mae = errs.reduce((a, e) => a + Math.abs(e), 0) / errs.length;
-    const bias = errs.reduce((a, e) => a + e, 0) / errs.length;
-    const worst = errs.reduce((a, e) => (Math.abs(e) > Math.abs(a) ? e : a), 0);
-    const lean = Math.abs(bias) < 0.05 ? 'no clear lean' : bias > 0 ? 'forecasts mostly too high' : 'forecasts mostly too low';
-    return { x: new Date(k + HOUR / 2), y: Math.round(mae * 1000) / 1000, fill: mae > tol ? '#ea580c' : '#94a3b8',
-      note: `${fmtTime(new Date(k).toISOString())}–${fmtTime(new Date(k + HOUR).toISOString())}: ${errs.length} forecasts, ${lean}; largest miss ${worst > 0 ? '+' : ''}${fmtNum(worst)} mg/L` };
-  });
+  // One chart, two lines on top of each other: measured DO (solid) and the forecast that was made
+  // for the same moment (dashed). The light band around the measured line is the "accurate zone"
+  // (within ±tol mg/L); orange dots mark only the forecasts that landed outside it.
   const at = (p) => new Date(p.t);
+  const sorted = [...pairs].sort((a, b) => at(a) - at(b));
+  const off = (p) => p.forecast - p.measured;
+  const verdict = (p) => {
+    const e = off(p);
+    return `Off by ${e > 0 ? '+' : ''}${fmtNum(e)} mg/L: ${Math.abs(e) <= tol ? 'accurate (inside the band)' : e > 0 ? 'missed, forecast too high' : 'missed, forecast too low'}`;
+  };
+  const misses = sorted.filter((p) => Math.abs(off(p)) > tol);
   return {
-    ariaLabel: `Measured DO and ${label.toLowerCase()}s made ${horizon} minutes earlier, with the average forecast miss per hour`,
+    ariaLabel: `Measured DO and the ${label.toLowerCase()} made ${horizon} minutes earlier for the same time`,
     navigator: true,
-    panels: [
-      { title: 'Measured DO and what was forecast for that time', unit: 'mg/L', weight: 1.7, zones: doZones(rule), thresholds: doThresholds(rule),
-        series: [
-          { name: 'Measured DO', color: DO_COLOR, width: 2.4, points: pairs.map((p) => ({ x: at(p), y: p.measured })), dots: false },
-          { name: `${label} made ${horizon} min earlier (one dot each)`, color: FORECAST_COLOR, style: 'dots', points: pairs.map((p) => ({ x: at(p), y: p.forecast })) },
-        ] },
-      { title: 'Average forecast miss per hour', unit: 'mg/L', weight: 1, domain: [0, Math.max(tol * 1.6, ...bars.map((b) => b.y * 1.15))],
-        thresholds: [{ y: tol, label: tol.toFixed(1) }],
-        series: [{ name: 'Average miss', type: 'bars', bucketMs: HOUR, barMax: 22, color: '#94a3b8', noLegend: true, points: bars, format: (v) => v.toFixed(2) }],
-        yFormat: (v) => v.toFixed(1) },
-    ],
-    legendExtra: [{ cls: 'box', color: '#94a3b8', label: `Hour with average miss ≤ ${tol} mg/L` }, { cls: 'box', color: '#ea580c', label: `Hour with average miss > ${tol} mg/L` }],
-    tooltipX: (d) => `Target time ${fmtDateTime(d.toISOString())}`,
+    panels: [{ title: `Measured DO vs ${horizon}-min ${label.toLowerCase()}`, unit: 'mg/L', thresholds: doThresholds(rule),
+      series: [
+        { name: 'Measured DO', color: DO_COLOR, width: 2.6, dots: false,
+          points: sorted.map((p) => ({ x: at(p), y: p.measured })),
+          band: sorted.map((p) => ({ x: at(p), lo: p.measured - tol, hi: p.measured + tol })), bandLabel: `Accurate zone (within ±${tol} mg/L of measured)`, bandTooltip: false },
+        { name: `${label} made ${horizon} min earlier`, color: FORECAST_COLOR, dashed: true, width: 1.8, dots: false,
+          points: sorted.map((p) => ({ x: at(p), y: p.forecast, note: verdict(p) })) },
+        { name: `${label} missed by more than ${tol} mg/L`, color: '#ea580c', style: 'dots', r: 3.6, opacity: 0.95, noTooltip: true,
+          points: misses.map((p) => ({ x: at(p), y: p.forecast })) },
+      ] }],
+    tooltipX: (d) => `${fmtDateTime(d.toISOString())} (forecast made at ${fmtTime(new Date(d.getTime() - horizon * 60000).toISOString())})`,
   };
 }

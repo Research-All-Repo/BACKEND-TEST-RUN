@@ -68,7 +68,7 @@ export default async function evaluation(root, ctx) {
 
     <section class="dashboard-panel model2-performance-panel">
       <div class="model2-section-header"><div><span class="model2-eyebrow">PREDICTED VS MEASURED</span><h3>Forecasts Against Measured DO (last 48 h)</h3>
-        <p>Top: each forecast drawn at the time it was predicting, next to the measured DO. Bottom: how far off it was.</p></div>
+        <p>Solid line: measured DO. Dashed line: what the model had predicted for that same time. Inside the light band = accurate; orange dots = misses.</p></div>
         <div class="history2-select-wrapper"><select id="ev-h">${[30, 60, 90, 120].map((h) => raw(`<option value="${h}" ${h === 60 ? 'selected' : ''}>+${h} min horizon</option>`))}</select>${ic('chevron-down', 14)}</div></div>
       <p class="aq-chart-summary" id="ev-summary"></p>
       <div class="history2-chart-wrapper" id="ev-chart" style="height:420px"></div>

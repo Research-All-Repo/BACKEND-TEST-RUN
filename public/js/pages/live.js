@@ -2,7 +2,7 @@
 // operator guidance, manual aeration REQUEST (never direct control), environment, edge health, recent activity.
 import { get, post, qs } from '../api.js';
 import { html, raw, ic, esc, fmtNum, fmtTime, fmtDateTime, ago, riskKey, riskLabel, doBand, guidanceFor, toast, errorBox, busy } from '../ui.js';
-import { mountChart, doZones, doThresholds, DO_COLOR, FORECAST_COLOR } from '../chart.js';
+import { mountChart, doZones, doThresholds, doDomain, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 import { openActivityModal, eventIcon, eventLabel } from './shared.js';
 
 const ENV = [
@@ -177,13 +177,14 @@ export default async function live(root, ctx) {
       const originT = new Date(o.timestamp_utc);
       chart = mountChart(chartHost, {
         ariaLabel: 'Dissolved oxygen: last 2 hours observed and the next 2 hours forecast',
-        panels: [{ title: 'Dissolved oxygen', unit: 'mg/L', includeThresholds: rule.critical_do_mg_l !== null,
+        panels: [{ title: 'Dissolved oxygen', unit: 'mg/L',
+          domain: doDomain([...series.map((r) => (r.do_mg_l_status === 'VALID' ? r.do_mg_l : null)), doValue, ...d.forecasts.map((f) => (f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null))], rule),
           zones: rule.critical_do_mg_l !== null ? doZones(rule) : [], thresholds: rule.critical_do_mg_l !== null ? doThresholds(rule) : [],
           marker: { x: originT, label: 'Now' },
           series: [
             { name: 'Observed (last 2 h)', color: DO_COLOR, points: series.map((r) => ({ x: new Date(r.timestamp_utc), y: r.do_mg_l_status === 'VALID' ? r.do_mg_l : null })), dots: false },
             { name: 'Forecast (next 2 h)', color: FORECAST_COLOR, dashed: true, endLabel: true, dots: true,
-              points: [{ x: originT, y: doValue, fill: DO_COLOR }, ...d.forecasts.map((f) => ({ x: new Date(originT.getTime() + f.horizon_minutes * 60000), y: f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null }))] },
+              points: [{ x: originT, y: doValue, fill: DO_COLOR }, ...d.forecasts.map((f) => ({ x: new Date(originT.getTime() + f.horizon_minutes * 60000), y: f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null, label: f.forecast_status === 'VALID' && f.horizon_minutes < 120 ? fmtNum(f.predicted_do_mg_l) : '' }))] },
           ] }],
         tooltipX: (dt) => { const m = Math.round((dt - originT) / 60000); return `${fmtDateTime(dt.toISOString())}${m > 0 ? ` · forecast +${m} min` : m === 0 ? ' · now' : ''}`; },
       });
