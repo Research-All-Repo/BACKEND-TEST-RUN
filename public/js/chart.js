@@ -531,15 +531,19 @@ export function mountChart(host, rawConfig) {
         s += `<text class="tick" x="${M.l - 7}" y="${sy(t) + 4}" text-anchor="end">${esc(yf(t))}</text>`;
       }
       for (const r of th) {
-        s += `<line class="threshold" x1="${M.l}" x2="${M.l + plotW}" y1="${sy(r.y)}" y2="${sy(r.y)}"/>`;
-        s += `<text class="tick threshold-tick" x="${M.l - 7}" y="${sy(r.y) + 4}" text-anchor="end">${esc(r.label ?? yf(r.y))}</text>`;
+        const tcol = r.color ? ` style="stroke:${r.color}"` : ''; const tfill = r.color ? ` style="fill:${r.color}"` : '';
+        s += `<line class="threshold${r.dotted ? ' dotted' : ''}" x1="${M.l}" x2="${M.l + plotW}" y1="${sy(r.y)}" y2="${sy(r.y)}"${tcol}/>`;
+        s += `<text class="tick threshold-tick" x="${M.l - 7}" y="${sy(r.y) + 4}" text-anchor="end"${tfill}>${esc(r.label ?? yf(r.y))}</text>`;
       }
       // marker
       if (p.marker && +p.marker.x >= x0 && +p.marker.x <= x1) {
         const mx = sx(+p.marker.x);
-        s += `<line class="marker" x1="${mx}" x2="${mx}" y1="${top}" y2="${top + h}"/>`;
-        s += `<text class="marker-label" x="${mx + 5}" y="${top + 11}">${esc(p.marker.label || '')}</text>`;
-        L.placed = [{ x0: mx + 3, x1: mx + 7 + (p.marker.label || '').length * 6.5, y0: top, y1: top + 14 }];
+        const mc = p.marker.color;
+        s += `<line class="marker" x1="${mx}" x2="${mx}" y1="${top}" y2="${top + h}"${mc ? ` style="stroke:${mc}"` : ''}/>`;
+        const ml = p.marker.label || ''; const mlw = ml.length * 6.6;
+        const mlx = mx + 6 + mlw > M.l + plotW ? mx - 6 : mx + 6; // flip to the left near the right edge
+        s += `<text class="marker-label" x="${mlx}" y="${top + 11}" text-anchor="${mlx < mx ? 'end' : 'start'}"${mc ? ` style="fill:${mc}"` : ''}>${esc(ml)}</text>`;
+        L.placed = [mlx < mx ? { x0: mx - 8 - mlw, x1: mx - 3, y0: top, y1: top + 14 } : { x0: mx + 3, x1: mx + 8 + mlw, y0: top, y1: top + 14 }];
       }
       // series
       for (const se of p.series) {
@@ -582,7 +586,23 @@ export function mountChart(host, rawConfig) {
           s += `<path d="${pathOf(se.points)}" fill="none" stroke="${se.color}" stroke-opacity="0.28" stroke-width="1" stroke-linejoin="round"/>`;
           s += `<path d="${pathOf(rollingMean(se.points, se.smooth))}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2.4}" stroke-linecap="round" stroke-linejoin="round"/>`;
         } else {
-          s += `<path d="${pathOf(se.points)}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2}" stroke-linecap="round" stroke-linejoin="round" ${se.dashed ? 'stroke-dasharray="6 5"' : ''}/>`;
+          if (se.area) { // soft gradient from the line down to the bottom of the plot
+            const gid = `aqg-${Math.random().toString(36).slice(2, 8)}`;
+            s += `<defs><linearGradient id="${gid}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${se.color}" stop-opacity="0.26"/><stop offset="1" stop-color="${se.color}" stop-opacity="0.02"/></linearGradient></defs>`;
+            let run = [];
+            const flush = () => {
+              if (run.length > 1) s += `<path d="M${run.map((q) => `${sx(+q.x).toFixed(1)},${sy(q.y).toFixed(1)}`).join('L')}L${sx(+run[run.length - 1].x).toFixed(1)},${top + h}L${sx(+run[0].x).toFixed(1)},${top + h}Z" fill="url(#${gid})"/>`;
+              run = [];
+            };
+            for (const pt of se.points) { if (valid(pt)) run.push(pt); else flush(); }
+            flush();
+          }
+          const dash = se.dotted ? 'stroke-dasharray="1.5 5" stroke-linecap="round"' : se.dashed ? 'stroke-dasharray="6 5"' : '';
+          s += `<path d="${pathOf(se.points)}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2}" stroke-linecap="round" stroke-linejoin="round" ${dash}/>`;
+        }
+        if (se.markers === 'ring') { // a small hollow dot on each reading, when there is room for them
+          const vp = se.points.filter(valid);
+          if (vp.length && plotW / vp.length >= 9) for (const pt of vp) s += `<circle cx="${sx(+pt.x).toFixed(1)}" cy="${sy(pt.y).toFixed(1)}" r="3.2" fill="#fff" stroke="${se.color}" stroke-width="2"/>`;
         }
         if (se.dots ?? se.points.length <= 14) {
           for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x)}" cy="${sy(pt.y)}" r="${pt.r || 4}" fill="${pt.fill || se.color}" stroke="#fff" stroke-width="2"/>`;
@@ -602,7 +622,7 @@ export function mountChart(host, rawConfig) {
           const b = pick.find(free);
           if (!b) continue;
           L.placed.push(b);
-          s += `<text class="point-label" x="${tx}" y="${b.y1 - 2}" text-anchor="middle">${esc(pt.label)}</text>`;
+          s += `<text class="point-label" x="${tx}" y="${b.y1 - 2}" text-anchor="middle"${pt.labelColor ? ` style="fill:${pt.labelColor}"` : ''}>${esc(pt.label)}</text>`;
         }
         if (se.endLabel && !R) {
           const last = [...se.points].reverse().find(valid);
@@ -651,7 +671,7 @@ export function mountChart(host, rawConfig) {
       const left = anchor === 'start' ? tx : anchor === 'end' ? tx - tw : tx - tw / 2;
       if (left < lastRight + 8) continue; // never let two time labels overlap
       lastRight = left + tw;
-      s += `<text class="tick" x="${tx}" y="${bottom + 15}" text-anchor="${anchor}">${esc(tk.main)}</text>`;
+      s += `<text class="tick${config.xTickClass ? ` ${config.xTickClass(new Date(tk.t)) || ''}` : ''}" x="${tx}" y="${bottom + 15}" text-anchor="${anchor}">${esc(tk.main)}</text>`;
       if (tk.sub) s += `<text class="tick-sub" x="${tx}" y="${bottom + 28}" text-anchor="${anchor}">${esc(tk.sub)}</text>`;
     }
     geo = { W, H, l: M.l, plotW, x0, x1, top: layout[0].top, bottom };

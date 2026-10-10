@@ -16,6 +16,34 @@ const ENV = [
 
 // newest reading already shown on this device (kept while the app is open)
 let lastSeenObs = null;
+// DO Trend & Forecast: chosen past window (hours) and the recent forecast error per horizon
+const LIVE_RANGES = [1, 4, 12, 24];
+let liveRange = 4;
+let accCache = null;
+const BAND_COLOR = { normal: '#0d9488', watch: '#d97706', critical: '#e11d48', unknown: '#94a3b8' };
+const valid = (q) => q && Number.isFinite(q.y);
+const RISK_COLOR = { NORMAL: '#0f766e', WATCH: '#b45309', WARNING: '#ea580c', CRITICAL: '#e11d48' };
+
+/** Typical forecast error (RMSE, mg/L) per horizon over the last 24 h; cached for 15 minutes. */
+async function forecastAccuracy() {
+  if (accCache && Date.now() - accCache.at < 15 * 60_000) return accCache.rmse;
+  const H = [30, 60, 90, 120];
+  const res = await Promise.all(H.map((h) => get(`/api/forecast/history${qs({ horizon: h, range: '24h' })}`).then((r) => r.data.points).catch(() => [])));
+  const rmse = {};
+  H.forEach((h, i) => {
+    const e = res[i].map((p) => p.error_mg_l).filter(Number.isFinite);
+    if (e.length >= 6) rmse[h] = Math.sqrt(e.reduce((a, x) => a + x * x, 0) / e.length);
+  });
+  accCache = { at: Date.now(), rmse };
+  return rmse;
+}
+
+/** "-2h", "-30m", "NOW", "+1.5h" */
+function relLabel(m) {
+  if (m === 0) return 'NOW';
+  const a = Math.abs(m);
+  return `${m < 0 ? '-' : '+'}${a < 60 ? `${a}m` : `${String(+(a / 60).toFixed(1)).replace(/\.0$/, '')}h`}`;
+}
 
 /** One or two plain sentences: where DO is now, how it moved, what the forecast says. */
 function liveSummary(d, series, doValue, rule) {
@@ -46,11 +74,12 @@ export default async function live(root, ctx) {
   async function load() {
     const d = (await ctx.refreshLive()) || ctx.live();
     if (!d) throw new Error('Live data could not be loaded.');
-    const [series, acts] = await Promise.all([
-      d.observation ? get(`/api/history/observations${qs({ from: new Date(new Date(d.observation.timestamp_utc) - 2 * 3600e3).toISOString(), to: new Date(new Date(d.observation.timestamp_utc).getTime() + 1000).toISOString(), order: 'asc', page_size: 30 })}`).catch(() => ({ data: [] })) : { data: [] },
+    const [series, acts, rmse] = await Promise.all([
+      d.observation ? get(`/api/history/observations${qs({ from: new Date(new Date(d.observation.timestamp_utc) - 24 * 3600e3).toISOString(), to: new Date(new Date(d.observation.timestamp_utc).getTime() + 1000).toISOString(), order: 'asc', page_size: 160 })}`).catch(() => ({ data: [] })) : { data: [] },
       get(`/api/activities${qs({ range: '7d', page_size: 4 })}`).catch(() => ({ data: [] })),
+      forecastAccuracy().catch(() => ({})),
     ]);
-    return { d, series: series.data, acts: acts.data };
+    return { d, series24: series.data, acts: acts.data, rmse };
   }
 
   async function render() {
@@ -59,7 +88,9 @@ export default async function live(root, ctx) {
       if (!['SESSION_EXPIRED', 'SESSION_MISSING'].includes(err.code)) root.innerHTML = errorBox(err);
       return;
     }
-    const { d, series, acts } = data;
+    const { d, series24, acts, rmse } = data;
+    // the plain-language summary keeps describing the last 2 hours
+    const series = d.observation ? series24.filter((r) => new Date(r.timestamp_utc) >= new Date(d.observation.timestamp_utc) - 2 * 3600e3) : [];
     const rule = d.rule_reference;
     const o = d.observation;
     const doR = o?.readings?.do_mg_l;
@@ -110,18 +141,31 @@ export default async function live(root, ctx) {
         <section class="dashboard-panel do-trend-panel">
           <div class="do-trend-header">
             <div class="do-trend-heading"><div class="do-trend-heading-icon">${ic('trending-down', 18)}</div>
-              <div><h3>DO Trend &amp; Forecast</h3><p>Recent observed dissolved oxygen followed by the +30, +60, +90, and +120 minute forecasts.</p></div></div>
+              <div><h3>DO Trend &amp; Forecast</h3><p>Recent dissolved oxygen measurements and the predicted values for the next 2 hours (<span id="live-range-label">${liveRange}h</span> window).</p></div></div>
             <div class="do-trend-live-badge"><span class="do-trend-live-dot"></span>${d.freshness?.state === 'LIVE' ? 'LIVE' : (d.freshness?.state || 'NO DATA').replace('_', ' ')}</div>
           </div>
           <p class="aq-chart-summary">${raw(liveSummary(d, series, doValue, rule))}</p>
           ${d.critical_outlook?.crossing_expected ? raw(html`<div class="do-trend-outlook">${ic('triangle-alert', 15)}<span><strong>Forecast outlook:</strong> The forecast reaches the configured critical reference by approximately ${outlook}.</span></div>`) : ''}
+          <div class="do-trend-toolbar">
+            <div class="aq-zoom-presets" role="group" aria-label="How far back to show">${LIVE_RANGES.map((h) => raw(`<button type="button" data-live-range="${h}" class="${h === liveRange ? 'active' : ''}" aria-pressed="${h === liveRange}">${h}h</button>`))}</div>
+            <div class="do-trend-keys">
+              ${rule.critical_do_mg_l !== null ? raw(html`<span><i class="dotted" style="--c:#e11d48"></i>Critical (≤ ${fmtNum(rule.critical_do_mg_l, 1)} mg/L)</span><span><i class="dotted" style="--c:#d97706"></i>Watch (${fmtNum(rule.critical_do_mg_l, 1)}–${fmtNum(rule.watch_boundary_do_mg_l, 1)} mg/L)</span>`) : ''}
+              ${Object.keys(rmse || {}).length ? raw('<span><i class="range"></i>Likely forecast range</span>') : ''}
+            </div>
+          </div>
           <div class="do-trend-chart" id="live-chart"></div>
           <div class="do-trend-value-grid">
             ${[{ label: 'Current', icon: 'activity', v: doValue }, ...d.forecasts.map((f) => ({ label: `+${f.horizon_minutes} min`, icon: 'clock-3', v: f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null, status: f.forecast_status }))]
               .map((c) => { const b = doBand(c.v, rule); return raw(html`<div class="do-trend-value-card ${b === 'critical' ? 'critical' : b === 'watch' ? 'attention' : 'normal'}">
                 <div class="do-trend-value-label">${ic(c.icon, 13)}${c.label}</div><strong>${c.v === null ? '--' : fmtNum(c.v)}</strong><span>${c.v === null && c.status ? c.status.replace(/_/g, ' ') : 'mg/L'}</span></div>`); })}
           </div>
-          <div class="do-trend-footnote">${ic('activity', 14)}<span>Observed values are the last 2 hours of synced 10-minute cycles. Forecasts are the four XGBoost horizons generated for the latest cycle.</span></div>
+          <div class="do-trend-model">
+            <div><span>Model</span><strong>${(() => { const m = d.forecasts.find((f) => f.model)?.model; return m ? `${m.model_name.replace(/ DO \+\d+ min$/, '')} ${m.version}` : 'XGBoost'; })()}</strong></div>
+            <div><span>Typical error at +1h</span><strong>${rmse?.[60] ? `± ${fmtNum(rmse[60])} mg/L` : 'Not enough data yet'}</strong></div>
+            <div><span>Forecast made from</span><strong>${o ? `${fmtTime(o.timestamp_utc)} reading` : '--'}</strong></div>
+            <button type="button" class="do-trend-more" data-go="forecast">View full forecast ${ic('arrow-right', 15)}</button>
+          </div>
+          <div class="do-trend-footnote">${ic('activity', 14)}<span>Each dot is a 10-minute reading. The shaded band around the forecast is its typical error over the last 24 hours (± RMSE per horizon), so the real value usually lands inside it.</span></div>
         </section>
 
         <div class="live-right-stack">
@@ -174,24 +218,63 @@ export default async function live(root, ctx) {
     root.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => ctx.navigate(b.dataset.go)));
     root.querySelector('[data-act=log]').addEventListener('click', () => openActivityModal({ variant: 'compact', onSaved: render }));
 
-    chart?.destroy();
     const chartHost = root.querySelector('#live-chart');
-    if (o) {
+    function drawTrend() {
+      chart?.destroy(); chart = null;
+      if (!o) { chartHost.innerHTML = '<div class="aq-state small"><strong>No observations yet</strong></div>'; return; }
       const originT = new Date(o.timestamp_utc);
-      chart = mountChart(chartHost, {
-        ariaLabel: 'Dissolved oxygen: last 2 hours observed and the next 2 hours forecast',
-        panels: [{ title: 'Dissolved oxygen', unit: 'mg/L',
-          domain: doDomain([...series.map((r) => (r.do_mg_l_status === 'VALID' ? r.do_mg_l : null)), doValue, ...d.forecasts.map((f) => (f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null))], rule),
-          zones: rule.critical_do_mg_l !== null ? doZones(rule) : [], thresholds: rule.critical_do_mg_l !== null ? doThresholds(rule) : [],
-          marker: { x: originT, label: 'Now' },
-          series: [
-            { name: 'Observed (last 2 h)', color: DO_COLOR, points: series.map((r) => ({ x: new Date(r.timestamp_utc), y: r.do_mg_l_status === 'VALID' ? r.do_mg_l : null })), dots: false },
-            { name: 'Forecast (next 2 h)', color: FORECAST_COLOR, dashed: true, endLabel: true, dots: true,
-              points: [{ x: originT, y: doValue, fill: DO_COLOR }, ...d.forecasts.map((f) => ({ x: new Date(originT.getTime() + f.horizon_minutes * 60000), y: f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null, label: f.forecast_status === 'VALID' && f.horizon_minutes < 120 ? fmtNum(f.predicted_do_mg_l) : '' }))] },
-          ] }],
-        tooltipX: (dt) => { const m = Math.round((dt - originT) / 60000); return `${fmtDateTime(dt.toISOString())}${m > 0 ? ` · forecast +${m} min` : m === 0 ? ' · now' : ''}`; },
+      const from = originT.getTime() - liveRange * 3600e3;
+      const to = originT.getTime() + 120 * 60000;
+      const obsPts = series24.filter((r) => new Date(r.timestamp_utc) >= from)
+        .map((r) => ({ x: new Date(r.timestamp_utc), y: r.do_mg_l_status === 'VALID' ? r.do_mg_l : null }));
+      const fcPts = d.forecasts.map((f) => {
+        const v = f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null;
+        const col = BAND_COLOR[doBand(v, rule)] || BAND_COLOR.unknown;
+        const e = rmse?.[f.horizon_minutes];
+        return { x: new Date(originT.getTime() + f.horizon_minutes * 60000), y: v, fill: col, r: 5, label: v === null ? '' : fmtNum(v), labelColor: col,
+          note: v !== null && e ? `Likely range ${fmtNum(Math.max(0, v - e))}–${fmtNum(v + e)} mg/L (± typical error ${fmtNum(e)})` : null, h: f.horizon_minutes, e };
       });
-    } else chartHost.innerHTML = '<div class="aq-state small"><strong>No observations yet</strong></div>';
+      // when the 2-hour forecast is only a sliver of the chart (12h / 24h on a phone), label just the last value
+      const fcWidth = (chartHost.clientWidth || 600) * (120 / (liveRange * 60 + 120));
+      if (fcWidth < 170) fcPts.forEach((q, i) => { if (i < fcPts.length - 1) q.label = ''; q.r = 4; });
+      const band = fcPts.some((q) => q.e && valid(q)) ? [{ x: originT, lo: doValue, hi: doValue }, ...fcPts.filter((q) => q.e && valid(q)).map((q) => ({ x: q.x, lo: Math.max(0, q.y - q.e), hi: q.y + q.e }))] : null;
+      // relative time ticks (-4h … NOW … +2h), spaced to fit the width
+      const width = chartHost.clientWidth || 600;
+      const totalMin = liveRange * 60 + 120;
+      const step = [15, 30, 60, 120, 240, 360].find((m) => totalMin / m + 1 <= Math.max(4, Math.floor(width / 62))) || 360;
+      const ticks = [];
+      for (let m = -Math.floor((liveRange * 60) / step) * step; m <= 120; m += step) ticks.push(new Date(originT.getTime() + m * 60000));
+      const riskCol = RISK_COLOR[d.risk?.current_risk_state] || '#64748b';
+      chart = mountChart(chartHost, {
+        ariaLabel: `Dissolved oxygen: last ${liveRange} hours measured and the next 2 hours predicted`,
+        memoryKey: 'live-trend',
+        xDomain: [new Date(from), new Date(to)],
+        xTicks: ticks,
+        xFormat: (dt) => relLabel(Math.round((dt - originT) / 60000)),
+        xTickClass: (dt) => (Math.round((dt - originT) / 60000) === 0 ? 'tick-now' : ''),
+        legend: false,
+        panels: [{ title: 'Dissolved oxygen', unit: 'mg/L',
+          domain: doDomain([...obsPts.map((q) => q.y), doValue, ...fcPts.map((q) => q.y), ...(band || []).flatMap((q) => [q.lo, q.hi])], rule),
+          thresholds: rule.critical_do_mg_l !== null ? [
+            { y: rule.critical_do_mg_l, label: fmtNum(rule.critical_do_mg_l, 1), color: '#e11d48', dotted: true },
+            { y: rule.watch_boundary_do_mg_l, label: fmtNum(rule.watch_boundary_do_mg_l, 1), color: '#d97706', dotted: true }] : [],
+          marker: { x: originT, label: `NOW · ${riskLabel(d.risk?.current_risk_state || 'DATA_UNAVAILABLE').toUpperCase()}`, color: riskCol },
+          series: [
+            { name: 'Actual DO', color: DO_COLOR, width: 2.6, area: true, markers: 'ring', dots: false, points: obsPts },
+            { name: 'Predicted DO (+30m, +1h, +1.5h, +2h)', color: FORECAST_COLOR, dotted: true, width: 2.6, dots: true,
+              band, bandTooltip: false,
+              points: [{ x: originT, y: doValue, fill: DO_COLOR, r: 4.5 }, ...fcPts] },
+          ] }],
+        tooltipX: (dt) => { const m = Math.round((dt - originT) / 60000); return `${fmtTime(dt.toISOString())} · ${m === 0 ? 'now' : m > 0 ? `forecast ${relLabel(m)}` : `${relLabel(m).slice(1)} ago`}`; },
+      });
+    }
+    drawTrend();
+    root.querySelectorAll('[data-live-range]').forEach((b) => b.addEventListener('click', () => {
+      liveRange = Number(b.dataset.liveRange);
+      root.querySelectorAll('[data-live-range]').forEach((x) => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
+      root.querySelector('#live-range-label').textContent = `${liveRange}h`;
+      drawTrend();
+    }));
 
     // a new reading since the last time this screen was drawn: let the DO value glow once
     const obsKey = o?.timestamp_utc || null;
