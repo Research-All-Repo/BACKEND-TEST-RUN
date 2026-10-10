@@ -82,6 +82,8 @@ function normalise(c) {
 }
 
 const valid = (p) => p && Number.isFinite(p.y);
+// which lines each chart has switched off, kept while the app is open (charts are re-drawn on refresh)
+const hiddenMemory = new Map();
 
 /** Centred rolling mean over `n` points (keeps gaps as gaps). */
 function rollingMean(points, n) {
@@ -134,6 +136,59 @@ export function mountChart(host, rawConfig) {
     zoomBar.className = 'aq-zoom';
     host.before(zoomBar);
   }
+  // ---- show / hide each variable (checkbox chips above the chart) ----
+  const toggles = [];
+  for (const p of config.panels) {
+    for (const se of p.series) {
+      if (se.noToggle || toggles.some((t) => t.name === se.name)) continue;
+      toggles.push({ name: se.name, color: se.color, kind: se.type === 'bars' ? 'box' : se.style === 'dots' ? 'dot' : se.dashed ? 'line dashed' : 'line',
+        unit: se.unit ?? (se.axis === 'right' ? p.right?.unit : p.unit) });
+    }
+  }
+  const useToggles = config.toggles !== false && toggles.length >= 2;
+  const memKey = config.memoryKey || (config.ariaLabel || '').split(/[,.]/)[0];
+  const hidden = new Set(useToggles ? [...(hiddenMemory.get(memKey) || [])].filter((n) => toggles.some((t) => t.name === n)) : []);
+  if (hidden.size >= toggles.length) hidden.clear();
+  let filterBar = null;
+  if (useToggles) {
+    filterBar = document.createElement('div');
+    filterBar.className = 'aq-series-toggles';
+    filterBar.setAttribute('role', 'group');
+    filterBar.setAttribute('aria-label', 'Choose which lines to show');
+    (zoomBar || host).before(filterBar);
+    renderToggles();
+  }
+  function renderToggles() {
+    filterBar.innerHTML = '<span class="aq-series-toggles-label">Show</span>';
+    const shown = toggles.length - hidden.size;
+    for (const t of toggles) {
+      const on = !hidden.has(t.name);
+      const lab = document.createElement('label');
+      lab.className = `aq-series-toggle${on ? '' : ' off'}`;
+      lab.style.setProperty('--c', t.color);
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = on;
+      if (on && shown <= 1) { cb.disabled = true; lab.title = 'At least one line stays on the chart'; lab.classList.add('locked'); }
+      cb.addEventListener('change', () => {
+        if (cb.checked) hidden.delete(t.name); else hidden.add(t.name);
+        hiddenMemory.set(memKey, new Set(hidden));
+        renderToggles(); draw();
+      });
+      const box = document.createElement('span'); box.className = 'aq-check'; box.setAttribute('aria-hidden', 'true');
+      const key = document.createElement('i'); key.className = t.kind;
+      const name = document.createElement('span'); name.className = 'aq-series-name'; name.textContent = t.name;
+      lab.append(cb, box, key, name);
+      if (t.unit) { const u = document.createElement('small'); u.textContent = t.unit; lab.append(u); }
+      filterBar.append(lab);
+    }
+  }
+  // ---- overview strip under the chart: the whole range in miniature; drag the window to move / resize ----
+  let navEl = null;
+  if (useZoom) {
+    navEl = document.createElement('div');
+    navEl.className = 'aq-nav';
+    host.after(navEl);
+    attachNav();
+  }
   function renderZoomBar() {
     if (!zoomBar) return;
     const span = fx1 - fx0;
@@ -164,8 +219,80 @@ export function mountChart(host, rawConfig) {
     row.append(group, tools);
     const hint = document.createElement('div'); hint.className = 'aq-zoom-hint';
     const range = view ? `Showing ${fmt({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(view[0])} – ${fmt(view[1] - view[0] > DAY ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } : { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(view[1])}. ` : '';
-    hint.textContent = range + (coarse ? 'Pinch the chart with two fingers to zoom; slide both fingers to move.' : 'Drag across the chart to zoom into that period, or double-click a spot.');
+    hint.textContent = range + (coarse ? 'Pinch the chart to zoom, or drag the window in the strip below it.' : 'Drag across the chart or the strip below it to zoom; double-click to zoom in.');
     zoomBar.append(row, hint);
+  }
+  function navSource() {
+    const p0 = config.panels[0];
+    return p0.series.find((se) => se.type !== 'bars' && !hidden.has(se.name) && se.points.filter(valid).length > 1)
+      || config.panels.flatMap((p) => p.series).find((se) => se.type !== 'bars' && !hidden.has(se.name)) || navSeries;
+  }
+  let navGeo = null;
+  function renderNav() {
+    if (!navEl || !geo) return;
+    const NH = coarse ? 48 : 42; const { W, l, plotW: pw } = geo;
+    const se = navSource();
+    const np = se.points.filter(valid);
+    const nsx = (x) => l + ((x - fx0) / (fx1 - fx0)) * pw;
+    const nlo = Math.min(...np.map((q) => q.y)); const nhi = Math.max(...np.map((q) => q.y));
+    const nsy = (v) => NH - 6 - ((v - nlo) / ((nhi - nlo) || 1)) * (NH - 14);
+    let line = ''; np.forEach((q, i) => { line += `${i ? 'L' : 'M'}${nsx(+q.x).toFixed(1)},${nsy(q.y).toFixed(1)}`; });
+    const area = np.length ? `${line}L${nsx(+np[np.length - 1].x).toFixed(1)},${NH - 1}L${nsx(+np[0].x).toFixed(1)},${NH - 1}Z` : '';
+    const wl = view ? nsx(view[0]) : l; const wr = view ? nsx(view[1]) : l + pw;
+    const grip = (x) => `<g class="nav-grip" transform="translate(${x.toFixed(1)},${NH / 2})"><rect x="-6" y="-13" width="12" height="26" rx="5"/><line x1="-1.6" x2="-1.6" y1="-6" y2="6"/><line x1="1.6" x2="1.6" y1="-6" y2="6"/></g>`;
+    navEl.style.height = `${NH}px`;
+    navEl.innerHTML = `<svg viewBox="0 0 ${W} ${NH}" width="100%" height="${NH}" preserveAspectRatio="none" aria-hidden="true">
+      <defs><clipPath id="navclip-${navId}"><rect x="${l}" y="1" width="${pw}" height="${NH - 2}" rx="9"/></clipPath></defs>
+      <rect class="nav-bg" x="${l}" y="1" width="${pw}" height="${NH - 2}" rx="9"/>
+      <g clip-path="url(#navclip-${navId})">
+        <path d="${area}" fill="${se.color}" fill-opacity="0.16"/>
+        <path d="${line}" fill="none" stroke="${se.color}" stroke-width="1.4" stroke-opacity="0.85" stroke-linejoin="round"/>
+        <rect class="nav-dim" x="${l}" y="0" width="${Math.max(0, wl - l)}" height="${NH}"/>
+        <rect class="nav-dim" x="${wr}" y="0" width="${Math.max(0, l + pw - wr)}" height="${NH}"/>
+      </g>
+      <rect class="nav-window${view ? ' zoomed' : ''}" x="${wl}" y="1.5" width="${Math.max(2, wr - wl)}" height="${NH - 3}" rx="9"/>
+      ${grip(wl)}${grip(wr)}
+    </svg>`;
+    navGeo = { W, l, pw, wl, wr };
+  }
+  const navId = Math.random().toString(36).slice(2, 8);
+  function attachNav() {
+    const toPx = (e) => { const r = navEl.getBoundingClientRect(); return ((e.clientX - r.left) / r.width) * navGeo.W; };
+    const toX = (px) => fx0 + ((px - navGeo.l) / navGeo.pw) * (fx1 - fx0);
+    navEl.addEventListener('pointerdown', (e) => {
+      if (!navGeo || e.button > 0) return;
+      e.preventDefault();
+      const px = toPx(e);
+      const grab = coarse ? 18 : 10;
+      let mode = 'pan';
+      if (view && Math.abs(px - navGeo.wl) < grab) mode = 'left';
+      else if (view && Math.abs(px - navGeo.wr) < grab) mode = 'right';
+      else if (!view) mode = 'new';
+      else if (px < navGeo.wl || px > navGeo.wr) { // jump the window to where the strip was touched
+        const span = view[1] - view[0]; const c = toX(px); setView(c - span / 2, c + span / 2);
+      }
+      try { navEl.setPointerCapture(e.pointerId); } catch { /* older browsers */ }
+      navEl.classList.add('dragging');
+      const startPx = px; const startX = toX(px); const start = view ? [...view] : [fx0, fx1]; // (after any jump above)
+      let moved = false;
+      const move = (ev) => {
+        const cp = toPx(ev);
+        if (Math.abs(cp - startPx) > 4) moved = true;
+        if (!moved) return;
+        const x = Math.min(fx1, Math.max(fx0, toX(cp)));
+        const cur = view || start;
+        if (mode === 'left') setView(Math.min(x, cur[1] - minSpan), cur[1]);
+        else if (mode === 'right') setView(cur[0], Math.max(x, cur[0] + minSpan));
+        else if (mode === 'new') setView(Math.min(startX, x), Math.max(startX, x));
+        else { const span = start[1] - start[0]; const dx = toX(cp) - toX(startPx); setView(start[0] + dx, start[0] + dx + span); }
+      };
+      const up = () => {
+        navEl.removeEventListener('pointermove', move); navEl.removeEventListener('pointerup', up); navEl.removeEventListener('pointercancel', up);
+        navEl.classList.remove('dragging');
+        if (!moved && mode === 'new') zoomBy(0.25, startX, 0.5); // a tap on the strip zooms in around that time
+      };
+      navEl.addEventListener('pointermove', move); navEl.addEventListener('pointerup', up); navEl.addEventListener('pointercancel', up);
+    });
   }
   if (useZoom) attachZoomGestures();
   function attachZoomGestures() {
@@ -244,7 +371,21 @@ export function mountChart(host, rawConfig) {
     readoutEl?.remove(); readoutEl = null;
     renderZoomBar();
     const inView = (q) => !view || (+q.x >= view[0] && +q.x <= view[1]);
-    const P = view ? config.panels.map((p) => ({ ...p, series: p.series.map((se) => ({ ...se, points: se.points.filter(inView), band: se.band?.filter(inView) })) })) : config.panels;
+    // lines switched off with the checkboxes are left out; if a panel's main (left) variable is off,
+    // the right-hand variable takes over the main scale and the DO zones / thresholds are dropped
+    const base = config.panels.map((p) => {
+      const minName = p.annotateMin ? p.series[p.annotateMin.series || 0]?.name : null;
+      const series = p.series.filter((se) => !hidden.has(se.name));
+      if (!series.length) return null;
+      let q = { ...p, series, annotateMinName: minName };
+      if (!series.some((se) => se.axis !== 'right')) {
+        q = { ...q, title: p.right?.title || series[0].name, unit: p.right?.unit, yFormat: p.right?.format, domain: p.right?.domain,
+          zones: [], thresholds: [], includeThresholds: false, annotateMin: null, right: null, series: series.map((se) => ({ ...se, axis: undefined })) };
+      }
+      if (q.annotateMin && !series.some((se) => se.name === minName)) q.annotateMin = null;
+      return q;
+    }).filter(Boolean);
+    const P = view ? base.map((p) => ({ ...p, series: p.series.map((se) => ({ ...se, points: se.points.filter(inView), band: se.band?.filter(inView) })) })) : base;
     const allSeries = P.flatMap((p) => p.series);
     const allPts = allSeries.flatMap((s) => s.points).filter(valid);
     if (!allPts.length) {
@@ -265,7 +406,8 @@ export function mountChart(host, rawConfig) {
     }
     const M = { l: narrow ? 38 : 46, r: hasRight ? Math.max(narrow ? 34 : 44, rightW) : hasEnd ? (narrow ? 44 : 54) : hasDots ? 24 : 14, t: 4, b: config.xTicks ? 22 : 34 };
     // on phones a panel with two scales stacks its two titles on separate lines
-    const titleH = (p) => (narrow && p.series.some((se) => se.axis === 'right') ? 38 : 20);
+    const compactTitles = useToggles && P.length === 1;
+    const titleH = (p) => (compactTitles ? 22 : narrow && p.series.some((se) => se.axis === 'right') ? 38 : 20);
     const GAP = 16;
     const strip = config.strip && config.strip.items?.length ? config.strip : null;
     const STRIP = strip ? 26 : 0;
@@ -288,7 +430,7 @@ export function mountChart(host, rawConfig) {
       const h = (avail * (p.weight || 1)) / totalW;
       y = top + h;
       const out = { p, top, h, stripTop: null };
-      if (strip && (strip.after ?? 0) === i) { out.stripTop = y + 10; y += STRIP; }
+      if (strip && Math.min(strip.after ?? 0, P.length - 1) === i) { out.stripTop = y + 10; y += STRIP; }
       y += GAP;
       return out;
     });
@@ -332,7 +474,19 @@ export function mountChart(host, rawConfig) {
 
       // titles (with a line key when two variables share the panel)
       const tx0 = M.l - (narrow ? 34 : 42);
-      if (R && narrow) {
+      if (compactTitles) {
+        // the checkboxes above already name every line, so each scale only gets a short coloured label
+        const lc = R ? (leftSeries[0]?.color || '#334155') : '#475569';
+        const full = (t, u) => `${t || ''}${u ? ` (${u})` : ''}`;
+        let lt = full(p.title, p.unit); let rt = R ? full(p.right?.title || rightSeries[0].name, p.right?.unit) : '';
+        if ((lt.length + rt.length) * 6.3 + 24 > W) { lt = p.unit || lt; rt = R ? (p.right?.unit || rt) : ''; }
+        s += `<text class="axis-title" x="${tx0}" y="${top - 9}" style="fill:${lc}">${esc(lt)}</text>`;
+        if (R) {
+          s += `<text class="axis-title" x="${W - 2}" y="${top - 9}" text-anchor="end" style="fill:${rightSeries[0].color}">${esc(rt)}</text>`;
+          const rf = p.right?.format || ((v) => v.toFixed(R.step >= 1 ? 0 : R.step >= 0.1 ? 1 : 2));
+          for (const t of R.ticks) s += `<text class="tick tick-right" x="${M.l + plotW + 7}" y="${syR(t) + 4}" style="fill:${rightSeries[0].color}">${esc(rf(t))}</text>`;
+        }
+      } else if (R && narrow) {
         const lc = leftSeries[0]?.color || '#334155'; const rc = rightSeries[0].color;
         const keyLine = (yy, c, dashed) => `<line x1="${tx0}" x2="${tx0 + 14}" y1="${yy}" y2="${yy}" stroke="${c}" stroke-width="2.5" ${dashed ? 'stroke-dasharray="4 3"' : ''}/>`;
         s += keyLine(top - 29, lc, leftSeries[0]?.dashed);
@@ -373,7 +527,7 @@ export function mountChart(host, rawConfig) {
       for (const tx of tickXs) s += `<line x1="${tx}" x2="${tx}" y1="${top}" y2="${top + h}"/>`;
       s += '</g>';
       for (const t of T.ticks) {
-        if (th.some((r) => Math.abs(sy(r.y) - sy(t)) < 11)) continue;
+        if (th.some((r) => Math.abs(sy(r.y) - sy(t)) < 14)) continue;
         s += `<text class="tick" x="${M.l - 7}" y="${sy(t) + 4}" text-anchor="end">${esc(yf(t))}</text>`;
       }
       for (const r of th) {
@@ -460,7 +614,7 @@ export function mountChart(host, rawConfig) {
       }
       // lowest-value annotation
       if (p.annotateMin) {
-        const se = p.series[p.annotateMin.series || 0];
+        const se = p.series.find((x) => x.name === p.annotateMinName) || p.series[0];
         const pts = se.points.filter(valid);
         if (pts.length > 2) {
           const m = pts.reduce((a, b) => (b.y < a.y ? b : a));
@@ -523,7 +677,7 @@ export function mountChart(host, rawConfig) {
     // (so a finger never covers the values and nothing is drawn on top of the lines)
     const tooltip = document.createElement('div');
     tooltip.setAttribute('role', 'status');
-    if (narrow) { tooltip.className = 'aq-chart-readout'; host.after(tooltip); readoutEl = tooltip; } else { tooltip.className = 'aq-chart-tooltip aq-hidden'; host.append(tooltip); }
+    if (narrow) { tooltip.className = 'aq-chart-readout'; (navEl || host).after(tooltip); readoutEl = tooltip; } else { tooltip.className = 'aq-chart-tooltip aq-hidden'; host.append(tooltip); }
     const hoverLine = svg.querySelector('.hover-line');
     const dots = svg.querySelector('.hover-dots');
     const hoverXs = allSeries.filter((se) => !(se.type === 'bars' && se.bucketMs)).flatMap((se) => se.points).filter(valid).map((q) => +q.x);
@@ -620,20 +774,26 @@ export function mountChart(host, rawConfig) {
         item.append(key, label); legendEl.append(item);
       };
       const seen = new Set();
-      for (const p of config.panels) for (const se of p.series) if (!seen.has(se.name) && !se.noLegend) { seen.add(se.name); add(se.type === 'bars' ? 'box' : se.style === 'dots' ? 'dot' : se.dashed ? 'line dashed' : 'line', se.color, se.smooth ? `${se.name} (faint: each reading, bold: ${se.smoothLabel || 'rolling average'})` : se.name); }
+      if (!useToggles) {
+        for (const p of config.panels) for (const se of p.series) if (!seen.has(se.name) && !se.noLegend) { seen.add(se.name); add(se.type === 'bars' ? 'box' : se.style === 'dots' ? 'dot' : se.dashed ? 'line dashed' : 'line', se.color, se.smooth ? `${se.name} (faint: each reading, bold: ${se.smoothLabel || 'rolling average'})` : se.name); }
+      } else {
+        const sm = P.flatMap((p) => p.series).find((se) => se.smooth);
+        if (sm) add('line faint', '#64748b', `Faint line: each reading · bold line: ${sm.smoothLabel || 'rolling average'}`);
+      }
       for (const ex of config.legendExtra || []) add(ex.cls || 'box', ex.color, ex.label);
-      for (const p of config.panels) for (const se of p.series) if (se.band?.length && se.bandLabel && !seen.has(se.bandLabel)) { seen.add(se.bandLabel); add('zone', se.color, se.bandLabel); }
-      for (const p of config.panels) for (const z of p.zones || []) if (z.legend && shownZones.has(z) && !seen.has(z.legend)) { seen.add(z.legend); add('zone', z.solid || z.fill, z.legend); }
+      for (const p of P) for (const se of p.series) if (se.band?.length && se.bandLabel && !seen.has(se.bandLabel)) { seen.add(se.bandLabel); add('zone', se.color, se.bandLabel); }
+      for (const p of P) for (const z of p.zones || []) if (z.legend && shownZones.has(z) && !seen.has(z.legend)) { seen.add(z.legend); add('zone', z.solid || z.fill, z.legend); }
       if (strip) {
         const keys = [...new Set(strip.items.map((it) => it.key))];
         for (const k of Object.keys(strip.styles)) if (keys.includes(k)) add('box', strip.styles[k].color, `${strip.styles[k].label}`);
       }
-      if (legendEl.childElementCount > 1 || strip) (readoutEl || host).after(legendEl); else legendEl = null;
+      if (legendEl.childElementCount > (useToggles ? 0 : 1) || strip) (readoutEl || navEl || host).after(legendEl); else legendEl = null;
     }
     if (narrow && uniqX.length) show(uniqX.length - 1, true);
+    renderNav();
   }
 
-  return { destroy() { ro.disconnect(); legendEl?.remove(); readoutEl?.remove(); zoomBar?.remove(); host.innerHTML = ''; } };
+  return { destroy() { ro.disconnect(); legendEl?.remove(); readoutEl?.remove(); zoomBar?.remove(); filterBar?.remove(); navEl?.remove(); host.innerHTML = ''; } };
 }
 
 // ---------- shared AquaCast helpers ----------

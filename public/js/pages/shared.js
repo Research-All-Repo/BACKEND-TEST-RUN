@@ -136,7 +136,7 @@ export function accuracyChartConfig(pairs, horizon, rule, { tol = 0.3, label = '
           band: sorted.map((p) => ({ x: at(p), lo: p.measured - tol, hi: p.measured + tol })), bandLabel: `Accurate zone (within ±${tol} mg/L of measured)`, bandTooltip: false },
         { name: `${label} made ${horizon} min earlier`, color: FORECAST_COLOR, dashed: true, width: 1.8, dots: false,
           points: sorted.map((p) => ({ x: at(p), y: p.forecast, note: verdict(p) })) },
-        { name: `${label} missed by more than ${tol} mg/L`, color: '#ea580c', style: 'dots', r: 3.6, opacity: 0.95, noTooltip: true,
+        { name: `Misses (off by more than ${tol})`, color: '#ea580c', style: 'dots', r: 3.6, opacity: 0.95, noTooltip: true,
           points: misses.map((p) => ({ x: at(p), y: p.forecast })) },
       ] }],
     tooltipX: (d) => `${fmtDateTime(d.toISOString())} (forecast made at ${fmtTime(new Date(d.getTime() - horizon * 60000).toISOString())})`,
