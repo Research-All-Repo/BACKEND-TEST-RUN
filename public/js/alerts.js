@@ -291,7 +291,14 @@ export function openAlertSettings() {
           <div class="aq-settings-row"><span>Permission: <b>${permText}</b></span>
             ${perm === 'default' ? raw('<button type="button" class="aq-btn primary" data-act="perm">Enable notifications</button>') : ''}</div>
           ${perm === 'granted' ? raw(html`<div class="aq-settings-row"><span>Instant alerts: <b>${{ on: 'On for this device', off: 'Off', unsupported: 'Not supported by this browser', 'server-off': 'Not set up on the server yet', error: 'Could not register this device', unknown: 'Checking…' }[pushState]}</b></span>
-            ${pushState !== 'on' && pushState !== 'unsupported' && pushState !== 'server-off' ? raw('<button type="button" class="aq-btn" data-act="push">Retry</button>') : ''}</div>`) : ''}</section>
+            ${pushState !== 'on' && pushState !== 'unsupported' && pushState !== 'server-off' ? raw('<button type="button" class="aq-btn" data-act="push">Retry</button>') : ''}</div>`) : ''}
+          ${pushState === 'on' ? raw(html`<div class="aq-device-test"><button type="button" class="aq-btn primary" data-act="test-me">${ic('smartphone', 15)}Test this phone in 10 seconds</button>
+            <p>Tap, then close AquaCast or lock the phone. A test notification should appear within about 10–20 seconds. If it does not, see the tips below.</p></div>`) : ''}
+          <details class="aq-alert-tips"><summary>Not getting alerts when AquaCast is closed?</summary>
+            <p><b>Android (Chrome):</b> Settings → Apps → Chrome → Notifications → find AquaCast (or this site) → allow, turn on <i>Pop on screen</i>, <i>Sound</i> and <i>Lock screen</i>. Then Settings → Apps → Chrome → Battery → <i>Unrestricted</i>. If you installed AquaCast, check the AquaCast app entry the same way.</p>
+            <p><b>iPhone:</b> alerts only work from the Home Screen app (Share → Add to Home Screen), iOS 16.4 or newer. Settings → Notifications → AquaCast → Allow, Sounds and Lock Screen on. Add AquaCast to any Focus / Do Not Disturb you use.</p>
+            <p><b>Both:</b> open AquaCast once after each update, keep notifications allowed, and do not clear the app's data (that removes the registration).</p>
+          </details></section>
         <section><h4>${ic('volume-2', 16)}Alert sound</h4>
           <label class="aq-switch"><input type="checkbox" data-act="sound" ${soundEnabled() ? 'checked' : ''}><span>Play an alert tone (and vibrate on Android)</span></label>
           <div class="aq-test-row">
@@ -312,6 +319,20 @@ export function openAlertSettings() {
         if (r === 'granted') await syncPush();
         toast(r === 'granted' ? (pushState === 'on' ? 'Instant alerts are on for this device.' : 'Notifications enabled on this device.') : 'Notifications were not allowed.', r === 'granted' ? 'success' : 'error');
         close(); openAlertSettings();
+      });
+      m.querySelector('[data-act=test-me]')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget; btn.disabled = true;
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          const sub = await reg.pushManager.getSubscription();
+          if (!sub) { toast('This device is not registered for instant alerts. Tap Retry first.', 'error'); return; }
+          toast('Now close AquaCast or lock the phone. The test arrives in about 10 seconds.', 'success');
+          const r = await post('/api/push/test-me', { endpoint: sub.endpoint, delay_seconds: 10 });
+          const d = r.data || {};
+          if (d.sent) toast('Test notification sent to this phone.', 'success');
+          else if (d.not_registered) { toast('The server does not know this device. Registering it again…', 'error'); await syncPush(); }
+          else toast(`The push service refused the test${d.errors?.length ? `: ${d.errors[0]}` : ''}. An Admin can see details in System Settings.`, 'error');
+        } catch (err) { toast(err.message, 'error'); } finally { btn.disabled = false; }
       });
       m.querySelector('[data-act=push]')?.addEventListener('click', async () => { await syncPush(); close(); openAlertSettings(); });
       m.querySelectorAll('[data-theme-choice]').forEach((b) => b.addEventListener('click', () => {

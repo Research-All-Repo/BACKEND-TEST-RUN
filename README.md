@@ -213,6 +213,15 @@ choose in the bell menu → Appearance.
    dark-theme check. Merge into `main` only when it is green; that merge is the one Production deployment.
 5. Push changes in batches rather than many tiny pushes; GitHub rate-limits Vercel when it is asked too often.
 
+## 14. Phone alerts when AquaCast is closed (troubleshooting)
+
+Alerts reach a closed app through Web Push. Each link can be checked in **System Settings → Phone Alert Diagnostics** (Admin):
+
+1. **Server push keys / hook secret**: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `PUSH_HOOK_SECRET` set in Vercel.
+2. **Background check**: the Supabase 5-minute job (005) must reach `/api/push/stale-check`. While the simulator is on, this job is what creates new readings when every dashboard is closed. In Supabase SQL: `select status_code, content, created from net._http_response order by created desc limit 5;` must show `200`.
+3. **Registered devices**: each phone turns on alerts from the bell. `Last problem` shows the push service's answer (404/410 = registration expired, turn alerts on again).
+4. **The phone itself**: bell → *Test this phone in 10 seconds*, then close the app. If nothing appears, the phone's notification or battery settings are blocking it (tips are in the same dialog).
+
 ## Tests
 
 ```bash

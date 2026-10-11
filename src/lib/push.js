@@ -46,9 +46,38 @@ async function sendToAll(payload) {
   const { data: active } = await db.from('user_access_profiles').select('user_id').eq('status', 'ACTIVE')
     .in('user_id', [...new Set(subs.map((s) => s.user_id))]);
   const ok = new Set((active || []).map((u) => u.user_id));
+  return sendTo(subs.filter((s) => ok.has(s.user_id)), payload);
+}
+
+/** Send to one device (the "test this phone" button). The subscription must belong to userId. */
+async function sendToEndpoint(endpoint, userId, payload) {
+  if (!enabled()) return { sent: 0, failed: 0, removed: 0, disabled: true };
+  setup();
+  const { data: subs, error } = await getAdminClient().from('push_subscriptions')
+    .select('subscription_id, user_id, endpoint, p256dh, auth_secret').eq('endpoint', endpoint).eq('user_id', userId);
+  if (error) throw error;
+  if (!subs.length) return { sent: 0, failed: 0, removed: 0, not_registered: true };
+  return sendTo(subs, payload);
+}
+
+/** Every registered device with its owner's name and the result of the last send (diagnostics). */
+async function listSubscriptions() {
+  const db = getAdminClient();
+  const { data: subs, error } = await db.from('push_subscriptions')
+    .select('subscription_id, user_id, endpoint, user_agent, created_at, last_success_at, last_error').order('created_at', { ascending: false });
+  if (error) throw error;
+  const ids = [...new Set(subs.map((s) => s.user_id))];
+  const { data: people } = ids.length ? await db.from('user_access_profiles').select('user_id, full_name, email, status').in('user_id', ids) : { data: [] };
+  const byId = new Map((people || []).map((p) => [p.user_id, p]));
+  return subs.map((s) => ({ ...s, endpoint: undefined, push_service: (() => { try { return new URL(s.endpoint).host; } catch { return 'unknown'; } })(),
+    user_name: byId.get(s.user_id)?.full_name || byId.get(s.user_id)?.email || 'Unknown user', user_status: byId.get(s.user_id)?.status || 'UNKNOWN' }));
+}
+
+async function sendTo(subs, payload) {
+  const db = getAdminClient();
   const body = JSON.stringify({ ...payload, sentAt: new Date().toISOString() });
-  let sent = 0; let failed = 0; let removed = 0;
-  await Promise.all(subs.filter((s) => ok.has(s.user_id)).map(async (s) => {
+  let sent = 0; let failed = 0; let removed = 0; const errors = [];
+  await Promise.all(subs.map(async (s) => {
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth_secret } }, body,
         { TTL: payload.level === 'CRITICAL' ? 7200 : 3600, urgency: 'high', topic: payload.test ? 'aquacast-test' : 'aquacast-risk' });
@@ -59,11 +88,13 @@ async function sendToAll(payload) {
         await db.from('push_subscriptions').delete().eq('subscription_id', s.subscription_id); removed += 1;
       } else {
         failed += 1;
-        await db.from('push_subscriptions').update({ last_error: String(err.statusCode || err.message).slice(0, 200) }).eq('subscription_id', s.subscription_id);
+        const why = `${err.statusCode || ''} ${String(err.body || err.message || '').slice(0, 160)}`.trim();
+        errors.push(why);
+        await db.from('push_subscriptions').update({ last_error: why.slice(0, 200) }).eq('subscription_id', s.subscription_id);
       }
     }
   }));
-  return { sent, failed, removed };
+  return { sent, failed, removed, ...(errors.length ? { errors: errors.slice(0, 3) } : {}) };
 }
 
-module.exports = { enabled, saveSubscription, removeSubscription, sendToAll };
+module.exports = { enabled, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, listSubscriptions };

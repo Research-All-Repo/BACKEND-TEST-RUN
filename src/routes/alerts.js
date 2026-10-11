@@ -58,10 +58,13 @@ router.post('/test-broadcast', requireRole('ADMIN'), async (req, res, next) => {
       title: level === 'CRITICAL' ? 'TEST: Critical DO alert' : 'TEST: DO Warning alert',
       body: `Test sent by ${sentBy}. Not a real reading. Open AquaCast to see the alert screen.`,
     }).catch((e) => ({ error: e.message }));
+    await getAdminClient().from('dashboard_audit_log').update({ details: { level, sent_by: sentBy, note: 'Test of the alert sound and notification on all signed-in devices', sent: pushed.sent || 0, failed: pushed.failed || 0 } })
+      .eq('audit_id', data.audit_id).then(() => null, () => null);
     res.status(201).json({ data: { id: data.audit_id, level, sent_at: data.created_at, push: pushed },
       meta: { message: pushed.sent
-        ? `Test ${level} alert pushed to ${pushed.sent} device(s) now; open dashboards also show it within seconds.`
-        : `Test ${level} alert sent. Open dashboards show it within seconds${pushed.disabled ? ' (phone push is not configured yet)' : ' (no device has turned on phone alerts yet)'}.` } });
+        ? `Test ${level} alert pushed to ${pushed.sent} device(s) now${pushed.failed ? `; ${pushed.failed} device(s) failed (see System Settings → Phone alert diagnostics)` : ''}.`
+        : pushed.failed ? `Test ${level} alert could not be delivered to ${pushed.failed} device(s). See System Settings → Phone alert diagnostics.`
+          : `Test ${level} alert sent. Open dashboards show it within seconds${pushed.disabled ? ' (phone push is not configured on the server: VAPID keys missing)' : ' (no device has turned on phone alerts yet)'}.` } });
   } catch (err) {
     next(err);
   }

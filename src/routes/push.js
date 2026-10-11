@@ -4,6 +4,8 @@ const crypto = require('crypto');
 const config = require('../config');
 const push = require('../lib/push');
 const { E } = require('../lib/errors');
+const { requireRole } = require('../middleware/auth');
+const { getAdminClient } = require('../lib/supabase');
 const { evaluateAndNotify } = require('../services/risk-push');
 const { checkStaleAndNotify } = require('../services/stale-push');
 
@@ -20,6 +22,45 @@ router.post('/subscribe', async (req, res, next) => {
   } catch (err) {
     next(err.code ? err : E.validation(err.message));
   }
+});
+
+/**
+ * POST /api/push/test-me { endpoint, delay_seconds } - sends a test notification to THIS device only,
+ * after a short delay so the user can close AquaCast or lock the phone first.
+ */
+router.post('/test-me', async (req, res, next) => {
+  try {
+    const endpoint = String(req.body?.endpoint || '');
+    if (!/^https:\/\//.test(endpoint)) throw E.validation('This device is not registered for instant alerts yet.');
+    const delay = Math.max(0, Math.min(15, Number(req.body?.delay_seconds) || 0));
+    if (delay) await new Promise((r) => setTimeout(r, delay * 1000));
+    const result = await push.sendToEndpoint(endpoint, req.auth.user.id, {
+      level: 'CRITICAL', test: true, tag: 'aquacast-device-test', url: '/#live',
+      title: 'TEST: AquaCast alert on this phone', body: 'If you can read this with AquaCast closed, Warning and Critical alerts will reach this phone.',
+    });
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+/** GET /api/push/diagnostics (ADMIN) - every link of the phone-alert chain in one view. */
+router.get('/diagnostics', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const db = getAdminClient();
+    const [subs, beat, recent] = await Promise.all([
+      push.listSubscriptions().catch(() => []),
+      db.from('dashboard_settings').select('value, updated_at').eq('setting_key', 'background_check').maybeSingle().then((r) => r.data).catch(() => null),
+      db.from('dashboard_audit_log').select('action, created_at, details').in('action', ['PUSH_RISK_SENT', 'ALERT_TEST_BROADCAST', 'PUSH_STALE_SENT'])
+        .order('created_at', { ascending: false }).limit(8).then((r) => r.data || []),
+    ]);
+    res.json({ data: {
+      vapid_configured: push.enabled(),
+      hook_secret_configured: !!config.push.hookSecret,
+      simulator_enabled: !!config.mockEdge?.enabled,
+      background_check: beat ? { at: beat.updated_at, ...beat.value } : null,
+      subscriptions: subs,
+      recent_pushes: recent,
+    } });
+  } catch (err) { next(err); }
 });
 
 router.post('/unsubscribe', async (req, res, next) => {
@@ -64,7 +105,12 @@ async function staleHook(req, res, next) {
     if (edge?.tick) {
       try { await edge.tick(); simulator = 'ticked'; } catch (e) { simulator = `error: ${e.message}`; }
     }
-    res.json({ data: { ...(await checkStaleAndNotify()), simulator } });
+    const result = await checkStaleAndNotify();
+    // heartbeat for the diagnostics panel: proves Supabase's 5-minute job reaches the server
+    await getAdminClient().from('dashboard_settings').upsert({ setting_key: 'background_check', updated_at: new Date().toISOString(),
+      value: { simulator, result: result.sent ? 'no-data alert sent' : result.recovered ? 'readings-back alert sent' : (result.skipped || 'ok') } }, { onConflict: 'setting_key' })
+      .then(() => null, () => null);
+    res.json({ data: { ...result, simulator } });
   } catch (err) { next(err); }
 }
 

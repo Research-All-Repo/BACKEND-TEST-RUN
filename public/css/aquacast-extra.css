@@ -681,3 +681,25 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
 .aq-alerts-prompt p { margin: 2px 0 0; font-size: 13.5px; line-height: 1.5; color: #115e59; }
 .aq-alerts-prompt-actions { display: flex; align-items: center; gap: 8px; }
 .aq-alerts-prompt-later { border: 0; background: none; color: #475569; font: inherit; font-weight: 700; font-size: 13.5px; padding: 8px 10px; cursor: pointer; }
+
+/* ---------- phone alert diagnostics + device test ---------- */
+.aq-diag { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.aq-diag li { display: flex; gap: 12px; align-items: flex-start; padding: 11px 13px; border-radius: 12px; border: 1px solid #e2e8f0; background: #fff; }
+.aq-diag li.ok { border-color: #a7f3d0; background: #f0fdf4; }
+.aq-diag li.bad { border-color: #fecaca; background: #fef2f2; }
+.aq-diag-mark { flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 13px; color: #fff; background: #64748b; }
+.aq-diag li.ok .aq-diag-mark { background: #059669; }
+.aq-diag li.bad .aq-diag-mark { background: #e11d48; }
+.aq-diag strong { font-size: 14px; color: #0f172a; }
+.aq-diag p { margin: 2px 0 0; font-size: 13px; line-height: 1.5; color: #475569; }
+.aq-diag-table { margin-top: 12px; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 12px; }
+.aq-diag-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.aq-diag-table th, .aq-diag-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #eef2f6; white-space: nowrap; }
+.aq-diag-table th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: #64748b; background: #f8fafc; }
+.aq-diag-table td.bad { color: #be123c; white-space: normal; }
+.aq-diag-recent { margin: 10px 0 0; font-size: 12.5px; color: #475569; line-height: 1.6; }
+.aq-device-test { margin-top: 10px; display: grid; gap: 6px; }
+.aq-device-test p { margin: 0; font-size: 12.5px; color: #475569; }
+.aq-alert-tips { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; background: #f8fafc; }
+.aq-alert-tips summary { cursor: pointer; font-weight: 750; font-size: 13.5px; color: #0f766e; }
+.aq-alert-tips p { margin: 8px 0 0; font-size: 12.5px; line-height: 1.55; color: #334155; }

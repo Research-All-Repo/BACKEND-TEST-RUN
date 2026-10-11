@@ -21,15 +21,15 @@ export default async function settings(root, ctx) {
   let pollT;
 
   async function load() {
-    let s; let dev = null; let calib = null; let errs = null;
+    let s; let dev = null; let calib = null; let errs = null; let diag = null;
     try {
-      [s, dev, calib, errs] = await Promise.all([get('/api/settings'), get('/api/dev/mock-edge').catch(() => null),
-        get('/api/settings/calibration').catch(() => null), get('/api/errors').catch(() => null)]);
+      [s, dev, calib, errs, diag] = await Promise.all([get('/api/settings'), get('/api/dev/mock-edge').catch(() => null),
+        get('/api/settings/calibration').catch(() => null), get('/api/errors').catch(() => null), get('/api/push/diagnostics').catch(() => null)]);
     } catch (err) { page.innerHTML = errorBox(err); return; }
-    render(s.data, dev?.data || null, calib?.data || null, errs?.data || null);
+    render(s.data, dev?.data || null, calib?.data || null, errs?.data || null, diag?.data || null);
   }
 
-  function render(d, dev, calib, errs) {
+  function render(d, dev, calib, errs, diag) {
     const { study, aerator: a, locked } = d;
     const rule = locked.risk_rule;
     const area = study ? study.pond_length_m * study.pond_width_m : null;
@@ -93,6 +93,8 @@ export default async function settings(root, ctx) {
         <div class="settings2-storage-note">${ic(a.mode.acknowledged ? 'check-check' : 'clock', 15)}<p><strong>${a.mode.acknowledged ? 'In sync.' : 'Waiting for acknowledgement.'}</strong> ${a.mode.status_text} Manual ON/OFF from Live Status only works when MANUAL is acknowledged.</p></div>`)
         : raw(`<div class="aq-state"><strong>Aerator settings not initialised</strong><p>${esc(a?.message || '')}</p></div>`)}
       </section>
+
+      ${raw(diagnosticsHtml(diag))}
 
       <section class="dashboard-panel settings2-storage-panel">
         <div class="settings2-section-header">${ic('wrench', 18)}<div><span class="settings2-eyebrow">SENSOR CALIBRATION</span><h3>Calibration Mode</h3>
@@ -198,6 +200,32 @@ export default async function settings(root, ctx) {
     page.querySelector('#dev-tick')?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
       try { await post('/api/dev/mock-edge', { tick: true }); toast('Cycle pushed.', 'success'); await load(); ctx.refreshLive(); } catch (err) { toast(err.message, 'error'); }
     }));
+  }
+
+  /** Every link of the phone-alert chain, green or red, so a broken one is obvious. */
+  function diagnosticsHtml(g) {
+    if (!g) return html`<section class="dashboard-panel settings2-storage-panel"><div class="settings2-section-header">${ic('activity', 18)}<div><span class="settings2-eyebrow">PHONE ALERTS</span><h3>Phone Alert Diagnostics</h3><p>Could not load diagnostics. Make sure the latest update is deployed.</p></div></div></section>`;
+    const mins = g.background_check ? Math.round((Date.now() - new Date(g.background_check.at)) / 60000) : null;
+    const beatOk = mins !== null && mins <= 11;
+    const row = (ok, title, text) => raw(html`<li class="${ok === true ? 'ok' : ok === false ? 'bad' : 'info'}"><span class="aq-diag-mark">${ok === true ? '✓' : ok === false ? '!' : 'i'}</span><div><strong>${title}</strong><p>${text}</p></div></li>`);
+    const service = (h) => (/fcm|google/.test(h) ? 'Android / Chrome' : /apple/.test(h) ? 'iPhone / Safari' : /mozilla/.test(h) ? 'Firefox' : /windows|notify\.windows/.test(h) ? 'Windows / Edge' : h);
+    const device = (ua) => (/iPhone|iPad/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : 'Device');
+    return html`<section class="dashboard-panel settings2-storage-panel" id="push-diagnostics">
+      <div class="settings2-section-header">${ic('activity', 18)}<div><span class="settings2-eyebrow">PHONE ALERTS</span><h3>Phone Alert Diagnostics</h3>
+        <p>Every link from a new reading to a phone notification. A red item is where alerts stop.</p></div></div>
+      <ul class="aq-diag">
+        ${row(g.vapid_configured, 'Server push keys', g.vapid_configured ? 'VAPID keys are set on the server.' : 'VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are missing in Vercel. Phones cannot receive alerts.')}
+        ${row(g.hook_secret_configured, 'Hook secret', g.hook_secret_configured ? 'PUSH_HOOK_SECRET is set.' : 'PUSH_HOOK_SECRET is missing in Vercel; the Supabase webhook and 5-minute job are refused.')}
+        ${row(beatOk, 'Background check (Supabase, every 5 min)', mins === null ? 'Never received. Run 005_stale_data_check.sql with the same secret as PUSH_HOOK_SECRET; with the simulator on, nothing is generated while all apps are closed until this works.' : `Last run ${mins} min ago${g.background_check.simulator ? ` · simulator ${g.background_check.simulator}` : ''} · ${g.background_check.result}.${beatOk ? '' : ' Expected every 5 minutes: check the 005 job and its responses (403 = wrong secret).'}`)}
+        ${row(null, 'Data source', g.simulator_enabled ? 'Simulator is ON: readings come from the background check every 5 minutes (and from open dashboards).' : 'Simulator is OFF: readings come from the Raspberry Pi; the Supabase webhook sends alerts the moment a reading is stored.')}
+        ${row(g.subscriptions.length > 0, 'Registered devices', g.subscriptions.length ? `${g.subscriptions.length} device(s) will receive alerts.` : 'No device has turned on alerts. On each phone: bell → Enable notifications.')}
+      </ul>
+      ${g.subscriptions.length ? raw(html`<div class="aq-diag-table"><table><thead><tr><th>User</th><th>Device</th><th>Last delivered</th><th>Last problem</th></tr></thead><tbody>
+        ${g.subscriptions.map((x) => raw(html`<tr><td>${x.user_name}${x.user_status !== 'ACTIVE' ? raw(' <em>(not active)</em>') : ''}</td><td>${device(x.user_agent || '')} · ${service(x.push_service)}</td>
+          <td>${x.last_success_at ? fmtDateTime(x.last_success_at) : 'Never yet'}</td><td class="${x.last_error ? 'bad' : ''}">${x.last_error || '—'}</td></tr>`))}
+      </tbody></table></div>`) : ''}
+      ${g.recent_pushes.length ? raw(html`<p class="aq-diag-recent"><b>Recent sends:</b> ${g.recent_pushes.slice(0, 5).map((r) => `${fmtDateTime(r.created_at)} ${r.action === 'ALERT_TEST_BROADCAST' ? 'test' : r.action === 'PUSH_STALE_SENT' ? 'no-data' : (r.details?.state || 'risk')} → ${r.details?.sent ?? 'not recorded'}${r.details?.sent !== undefined ? ' sent' : ''}${r.details?.failed ? `, ${r.details.failed} failed` : ''}`).join(' · ')}</p>`) : ''}
+    </section>`;
   }
 
   function guard(i, label, value, note) {
