@@ -170,3 +170,4 @@
 @media (width >= 1200px) { .model2-metric-guide { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .aq-chart-tooltip em.range { font-size: 10px; padding-left: 21px; margin-top: -3px; }
 .aq-chart .min-label, .aq-chart .zone-label, .aq-chart .end-label, .aq-chart .marker-label { paint-order: stroke; stroke: #ffffffd9; stroke-width: 3px; stroke-linejoin: round; }
+

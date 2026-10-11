@@ -1,8 +1,8 @@
 // Dependency-free SVG time-series charts for the AquaCast dashboard.
 //
 // mountChart(host, config) draws into `host`, redraws on resize and returns { destroy }.
-// Design rules (kept on purpose, see docs): one y-scale per panel (different units go in
-// stacked panels that share the time axis, never a second y-axis); coloured status zones
+// Design rules: a panel may overlay a second variable on its own right-hand scale (the titles at
+// both sides carry a line key so each scale is tied to its line); coloured status zones
 // with written labels; a crosshair that reads every series at once; selective direct labels
 // (latest value, lowest value); time ticks on whole hours/days in station time.
 //
@@ -12,7 +12,8 @@
 //     title, unit, weight,                   // panel header "Dissolved oxygen (mg/L)"; weight = share of height
 //     series: [{ name, color, dashed, width, dots, format, endLabel, points: [{ x, y, fill, r }],
 //                band: [{ x, lo, hi }], bandLabel }],      // optional min–max range drawn as a light area
-//     zones: [{ from, to, fill, label }],    // y-bands, e.g. Normal / Below boundary / Critical
+//     right: { title, unit, format, domain },  // second scale for series with axis: 'right' (overlaid comparison)
+//     zones: [{ from, to, fill, label }],    // y-bands (left scale), e.g. Normal / Below boundary / Critical
 //     thresholds: [{ y, label }],            // dashed reference lines (value shown on the y-axis)
 //     domain: [min, max], includeThresholds, allowNegative, pad, yFormat,
 //     annotateMin: { series: 0, label: (point) => string },
@@ -21,7 +22,8 @@
 //   strip: { title, after: 0, items: [{ x0, x1, key }], styles: { key: { color, label } } },
 //   xTicks: [Date], xFormat: (Date) => string, // optional explicit ticks (e.g. forecast horizons)
 //   tooltipX: (Date) => string,
-//   legend: true,                            // HTML legend under the chart (series, zones, strip)
+//   legend: true, legendExtra: [{ cls, color, label }], // HTML legend under the chart (series, zones, strip)
+//   series.type: 'bars' draws columns from 0 (each point may set its own fill)
 // }
 // A config without `panels` is treated as one panel (series/zones/thresholds at top level).
 import { esc, getTimezone } from './ui.js';
@@ -104,7 +106,8 @@ export function mountChart(host, rawConfig) {
     const narrow = W < 520;
     const hasEnd = allSeries.some((s) => s.endLabel);
     const hasDots = allSeries.some((se) => se.dots ?? se.points.length <= 14);
-    const M = { l: narrow ? 38 : 46, r: hasEnd ? (narrow ? 44 : 54) : hasDots ? 24 : 14, t: 4, b: config.xTicks ? 22 : 34 };
+    const hasRight = config.panels.some((p) => p.series.some((se) => se.axis === 'right'));
+    const M = { l: narrow ? 38 : 46, r: hasRight ? (narrow ? 40 : 48) : hasEnd ? (narrow ? 44 : 54) : hasDots ? 24 : 14, t: 4, b: config.xTicks ? 22 : 34 };
     const TITLE = 20; const GAP = 16;
     const strip = config.strip && config.strip.items?.length ? config.strip : null;
     const STRIP = strip ? 26 : 0;
@@ -130,7 +133,8 @@ export function mountChart(host, rawConfig) {
       y += GAP;
       return out;
     });
-    const bottom = layout[layout.length - 1].top + layout[layout.length - 1].h;
+    const lastL = layout[layout.length - 1];
+    const bottom = lastL.stripTop !== null ? lastL.stripTop + 12 : lastL.top + lastL.h;
 
     const ticks = config.xTicks
       ? config.xTicks.map((t) => ({ t: +t, main: (config.xFormat || ((d) => d.toISOString()))(new Date(t)), sub: '' }))
@@ -141,7 +145,9 @@ export function mountChart(host, rawConfig) {
     let s = '';
     for (const L of layout) {
       const { p, top, h } = L;
-      const vals = p.series.flatMap((se) => [...se.points.filter(valid).map((pt) => pt.y),
+      const leftSeries = p.series.filter((se) => se.axis !== 'right');
+      const rightSeries = p.series.filter((se) => se.axis === 'right');
+      const vals = leftSeries.flatMap((se) => [...se.points.filter(valid).map((pt) => pt.y),
         ...(se.band || []).flatMap((q) => [q.lo, q.hi]).filter(Number.isFinite)]);
       const extra = p.includeThresholds ? (p.thresholds || []).map((t) => t.y) : [];
       const lo = Math.min(...vals, ...extra); const hi = Math.max(...vals, ...extra);
@@ -151,9 +157,35 @@ export function mountChart(host, rawConfig) {
       const sy = (v) => top + (1 - (v - T.lo) / (T.hi - T.lo)) * h;
       L.sy = sy; L.T = T;
       const yf = p.yFormat || ((v) => (T.step >= 1 ? v.toFixed(0) : v.toFixed(1)));
+      // optional right-hand scale for a second variable plotted over the first
+      let R = null;
+      if (rightSeries.length) {
+        const rv = rightSeries.flatMap((se) => se.points.filter(valid).map((pt) => pt.y));
+        const rlo = Math.min(...rv); const rhi = Math.max(...rv);
+        const rpad = Math.max((rhi - rlo) * 0.12, Math.abs(rhi) * 0.01, 0.1);
+        const rd = p.right?.domain || [rlo - rpad, rhi + rpad];
+        R = niceTicks(rd[0], rd[1], h < 120 ? 3 : 4);
+      }
+      const syR = R ? (v) => top + (1 - (v - R.lo) / (R.hi - R.lo)) * h : sy;
+      L.syR = syR;
+      const scaleOf = (se) => (se.axis === 'right' ? syR : sy);
+      L.scaleOf = scaleOf;
 
-      // title
-      s += `<text class="panel-title" x="${M.l - (narrow ? 34 : 42)}" y="${top - 7}">${esc(p.title || '')}${p.unit ? `<tspan class="panel-unit"> (${esc(p.unit)})</tspan>` : ''}</text>`;
+      // titles (with a line key when two variables share the panel)
+      const tx0 = M.l - (narrow ? 34 : 42);
+      if (R) {
+        const lc = leftSeries[0]?.color || '#334155'; const rc = rightSeries[0].color;
+        s += `<line x1="${tx0}" x2="${tx0 + 14}" y1="${top - 11}" y2="${top - 11}" stroke="${lc}" stroke-width="2.5" ${leftSeries[0]?.dashed ? 'stroke-dasharray="4 3"' : ''}/>`;
+        s += `<text class="panel-title" x="${tx0 + 19}" y="${top - 7}">${esc(p.title || '')}${p.unit ? `<tspan class="panel-unit"> (${esc(p.unit)})</tspan>` : ''}</text>`;
+        const rt = `${p.right?.title || rightSeries[0].name}${p.right?.unit ? ` (${p.right.unit})` : ''}`;
+        s += `<text class="panel-title right-title" x="${W - 2}" y="${top - 7}" text-anchor="end">${esc(p.right?.title || rightSeries[0].name)}${p.right?.unit ? `<tspan class="panel-unit"> (${esc(p.right.unit)})</tspan>` : ''}</text>`;
+        const rkx = W - 2 - rt.length * 6.3 - 20;
+        s += `<line class="right-key" x1="${rkx}" x2="${rkx + 14}" y1="${top - 11}" y2="${top - 11}" stroke="${rc}" stroke-width="2.5" ${rightSeries[0].dashed ? 'stroke-dasharray="4 3"' : ''}/>`;
+        const rf = p.right?.format || ((v) => (R.step >= 1 ? v.toFixed(0) : v.toFixed(1)));
+        for (const t of R.ticks) s += `<text class="tick" x="${M.l + plotW + 7}" y="${syR(t) + 4}">${esc(rf(t))}</text>`;
+      } else {
+        s += `<text class="panel-title" x="${tx0}" y="${top - 7}">${esc(p.title || '')}${p.unit ? `<tspan class="panel-unit"> (${esc(p.unit)})</tspan>` : ''}</text>`;
+      }
       // zones
       const zoneBoxes = [];
       for (const z of p.zones || []) {
@@ -188,6 +220,7 @@ export function mountChart(host, rawConfig) {
       }
       // series
       for (const se of p.series) {
+        const sy = scaleOf(se);
         if (se.band?.length) {
           const bp = se.band.filter((q) => Number.isFinite(q.lo) && Number.isFinite(q.hi));
           if (bp.length > 1) {
@@ -195,6 +228,17 @@ export function mountChart(host, rawConfig) {
             const dn = bp.slice().reverse().map((q) => `${sx(+q.x).toFixed(1)},${sy(q.lo).toFixed(1)}`);
             s += `<polygon points="${up.concat(dn).join(' ')}" fill="${se.color}" fill-opacity="0.12"/>`;
           }
+        }
+        if (se.type === 'bars') {
+          const n = Math.max(1, se.points.length);
+          const bw = Math.max(1, Math.min(8, (plotW / n) * 0.7));
+          const y0 = sy(Math.max(T.lo, Math.min(T.hi, 0)));
+          for (const pt of se.points) {
+            if (!valid(pt)) continue;
+            const yv = sy(pt.y); const top0 = Math.min(y0, yv); const hh = Math.max(1, Math.abs(y0 - yv));
+            s += `<rect x="${(sx(+pt.x) - bw / 2).toFixed(1)}" y="${top0.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="${bw >= 4 ? 1.5 : 0}" fill="${pt.fill || se.color}"/>`;
+          }
+          continue;
         }
         let path = ''; let pen = false;
         for (const pt of se.points) {
@@ -206,7 +250,7 @@ export function mountChart(host, rawConfig) {
           for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x)}" cy="${sy(pt.y)}" r="${pt.r || 4}" fill="${pt.fill || se.color}" stroke="#fff" stroke-width="2"/>`;
         }
         const f = se.format || ((v) => v.toFixed(2));
-        if (se.endLabel) {
+        if (se.endLabel && !R) {
           const last = [...se.points].reverse().find(valid);
           if (last) {
             s += `<circle cx="${sx(+last.x)}" cy="${sy(last.y)}" r="4" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;
@@ -262,6 +306,11 @@ export function mountChart(host, rawConfig) {
     svg.setAttribute('aria-label', `${config.ariaLabel || 'Chart'}. Use the left and right arrow keys to read values.`);
     svg.innerHTML = s;
     host.append(svg);
+    // place each right-hand title's line key just left of the measured title text
+    svg.querySelectorAll('.right-title').forEach((t, i) => {
+      const key = svg.querySelectorAll('.right-key')[i];
+      try { const w = t.getComputedTextLength(); key.setAttribute('x1', W - 2 - w - 20); key.setAttribute('x2', W - 2 - w - 6); } catch { /* keep estimate */ }
+    });
 
     // ---------- hover / keyboard crosshair ----------
     const tooltip = document.createElement('div');
@@ -286,11 +335,12 @@ export function mountChart(host, rawConfig) {
         for (const se of L.p.series) {
           const pt = se.points.find((q) => +q.x === xv);
           if (!valid(pt)) continue;
-          dotSvg += `<circle cx="${px}" cy="${L.sy(pt.y)}" r="4.5" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;
+          dotSvg += `<circle cx="${px}" cy="${L.scaleOf(se)(pt.y)}" r="4.5" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;
           const row = document.createElement('span');
           const key = document.createElement('i'); key.className = se.dashed ? 'dashed' : ''; key.style.borderColor = se.color;
           const fv = se.format || ((v) => v.toFixed(2));
-          const val = document.createElement('b'); val.textContent = `${fv(pt.y)}${L.p.unit ? ` ${L.p.unit}` : ''}`;
+          const unit = se.unit ?? (se.axis === 'right' ? L.p.right?.unit : L.p.unit);
+          const val = document.createElement('b'); val.textContent = `${fv(pt.y)}${unit ? ` ${unit}` : ''}`;
           const name = document.createElement('em'); name.textContent = se.name;
           row.append(key, val, name); tip.append(row);
           const bq = se.band?.find((q) => +q.x === xv);
@@ -351,7 +401,8 @@ export function mountChart(host, rawConfig) {
         item.append(key, label); legendEl.append(item);
       };
       const seen = new Set();
-      for (const p of config.panels) for (const se of p.series) if (!seen.has(se.name)) { seen.add(se.name); add(se.dashed ? 'line dashed' : 'line', se.color, se.name); }
+      for (const p of config.panels) for (const se of p.series) if (!seen.has(se.name) && !se.noLegend) { seen.add(se.name); add(se.type === 'bars' ? 'box' : se.dashed ? 'line dashed' : 'line', se.color, se.name); }
+      for (const ex of config.legendExtra || []) add(ex.cls || 'box', ex.color, ex.label);
       for (const p of config.panels) for (const se of p.series) if (se.band?.length && se.bandLabel && !seen.has(se.bandLabel)) { seen.add(se.bandLabel); add('zone', se.color, se.bandLabel); }
       for (const p of config.panels) for (const z of p.zones || []) if (z.legend && shownZones.has(z) && !seen.has(z.legend)) { seen.add(z.legend); add('zone', z.solid || z.fill, z.legend); }
       if (strip) {

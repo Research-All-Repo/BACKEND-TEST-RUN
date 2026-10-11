@@ -61,7 +61,7 @@ export default async function sensors(root) {
         ${edge('battery', 'Battery / Supply', h.battery_voltage_v ? `${fmtNum(h.battery_voltage_v, 2)} V` : 'Not measured', `Sync status ${h.sync_status}`)}
       </div>`) : raw('<div class="aq-state"><strong>No health report yet</strong><p>The edge device has not uploaded a system_health row.</p></div>')}
       <div class="sensors2-section-header" style="margin-top:18px"><div><span class="sensors2-eyebrow">PAST 24 HOURS</span><h3>CPU Temperature &amp; Memory</h3><p>Each line is reported by the Raspberry Pi with every 10-minute cycle. Values that keep rising may need attention.</p></div></div>
-      <div class="history2-chart-wrapper" id="s-health-chart" style="height:320px"></div>
+      <div class="history2-chart-wrapper" id="s-health-chart" style="height:280px"></div>
     </section>
 
     <section class="dashboard-panel sensors2-array-panel">
@@ -118,9 +118,13 @@ export default async function sensors(root) {
   chart = mountChart(page.querySelector('#s-health-chart'), {
     ariaLabel: 'Raspberry Pi CPU temperature and memory use, past 24 hours',
     panels: [
-      { title: 'CPU temperature', unit: '°C', zones: [{ from: 80, to: Infinity, fill: '#e11d4812', solid: '#e11d48', label: 'Throttling risk (≥ 80 °C)', legend: 'CPU ≥ 80 °C: throttling risk' }],
-        thresholds: [{ y: 80 }], series: [{ name: 'CPU temperature', color: '#e2553d', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.pi_cpu_temp_c })), dots: false, endLabel: true, format: (v) => fmtNum(v, 1) }], yFormat: (v) => fmtNum(v, 0) },
-      { title: 'Memory used', unit: '%', domain: [0, 100], series: [{ name: 'Memory used', color: CONTEXT_COLOR, points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.ram_used_pct })), dots: false, endLabel: true, format: (v) => fmtNum(v, 0) }], yFormat: (v) => fmtNum(v, 0) },
+      { title: 'CPU temperature', unit: '°C', right: { title: 'Memory used', unit: '%', domain: [0, 100], format: (v) => fmtNum(v, 0) },
+        zones: [{ from: 80, to: Infinity, fill: '#e11d4812', solid: '#e11d48', label: 'Throttling risk (≥ 80 °C)', legend: 'CPU ≥ 80 °C: throttling risk' }],
+        thresholds: [{ y: 80 }], yFormat: (v) => fmtNum(v, 0),
+        series: [
+          { name: 'CPU temperature', color: '#e2553d', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.pi_cpu_temp_c })), dots: false, format: (v) => fmtNum(v, 1) },
+          { name: 'Memory used', color: CONTEXT_COLOR, axis: 'right', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.ram_used_pct })), dots: false, format: (v) => fmtNum(v, 0) },
+        ] },
     ],
     tooltipX: (d) => fmtDateTime(d.toISOString()),
   });

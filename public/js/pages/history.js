@@ -82,10 +82,10 @@ export default async function history(root, ctx) {
     const pts = series.data.map((r) => ({ x: new Date(r.bucket_start), y: r.do_mg_l }));
     const panel = root.querySelector('#h-chart-panel');
     panel.innerHTML = html`<div class="history2-section-header"><div><span class="history2-eyebrow">HISTORICAL ANALYSIS</span><h3>Dissolved Oxygen &amp; ${ov.label}</h3>
-        <p>${bucket === 10 ? 'Every 10-minute reading' : `Each point is a ${bucket >= 60 ? `${bucket / 60}-hour` : `${bucket}-minute`} average; the shaded band shows the lowest and highest reading in that period`}. Hover or use the arrow keys to read exact values.</p></div>
+        <p>${bucket === 10 ? 'Every 10-minute reading' : `Each point is a ${bucket >= 60 ? `${bucket / 60}-hour` : `${bucket}-minute`} average; the shaded band shows the lowest and highest reading in that period`}. DO uses the left scale and ${ov.label.toLowerCase()} the right scale. Hover or use the arrow keys to read exact values.</p></div>
         <div class="history2-chart-context"><span>${rangeText()}</span></div></div>
       <p class="aq-chart-summary">${describeDo(pts, rule, { stepMinutes: bucket })}</p>
-      <div class="history2-chart-wrapper" id="h-chart" style="height:440px"></div>
+      <div class="history2-chart-wrapper" id="h-chart" style="height:400px"></div>
       <div class="history2-chart-footer">
         <div class="history2-risk-distribution"><span>Recorded risk states (10-minute cycles)</span><div>
           <span class="history2-risk-mini normal">Normal ${rc.NORMAL ?? 0}</span><span class="history2-risk-mini watch">Watch ${rc.WATCH ?? 0}</span>
@@ -96,15 +96,17 @@ export default async function history(root, ctx) {
     chart = mountChart(panel.querySelector('#h-chart'), {
       ariaLabel: `Dissolved oxygen and ${ov.label}, ${rangeText()}`,
       panels: [
-        { title: 'Dissolved oxygen', unit: 'mg/L', weight: 1.7, includeThresholds: true,
+        { title: 'Dissolved oxygen', unit: 'mg/L', includeThresholds: true,
+          right: { title: ov.label, unit: ov.unit, format: (v) => fmtNum(v, ov.d === 0 ? 0 : 1) },
           zones: doZones(rule), thresholds: doThresholds(rule),
-          annotateMin: { label: (m) => `Lowest ${m.y.toFixed(2)} · ${fmtDateTime(m.x.toISOString())}` },
-          series: [{ name: 'Dissolved oxygen', color: DO_COLOR, points: pts, dots: false, endLabel: true,
-            band: bucket > 10 ? series.data.map((r) => ({ x: at(r), lo: r.do_min, hi: r.do_max })) : null,
-            bandLabel: bucket > 10 ? 'DO lowest–highest in period' : null }] },
-        { title: ov.label, unit: ov.unit, weight: 1,
-          series: [{ name: ov.label, color: CONTEXT_COLOR, points: series.data.map((r) => ({ x: at(r), y: r[st.overlay] })), dots: false,
-            endLabel: true, format: (v) => fmtNum(v, ov.d) }], yFormat: (v) => fmtNum(v, ov.d === 0 ? 0 : 1) },
+          annotateMin: { label: (m) => `Lowest DO ${m.y.toFixed(2)} · ${fmtDateTime(m.x.toISOString())}` },
+          series: [
+            { name: 'Dissolved oxygen', color: DO_COLOR, width: 2.4, points: pts, dots: false,
+              band: bucket > 10 ? series.data.map((r) => ({ x: at(r), lo: r.do_min, hi: r.do_max })) : null,
+              bandLabel: bucket > 10 ? 'DO lowest–highest in period' : null },
+            { name: ov.label, color: CONTEXT_COLOR, axis: 'right', points: series.data.map((r) => ({ x: at(r), y: r[st.overlay] })), dots: false,
+              format: (v) => fmtNum(v, ov.d) },
+          ] },
       ],
       strip: { title: 'Risk', after: 0, items: riskSegments(series.data, bucket * 60000), styles: RISK_STYLES },
       tooltipX: (dt) => fmtDateTime(dt.toISOString()),
