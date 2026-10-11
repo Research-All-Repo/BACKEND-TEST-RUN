@@ -78,6 +78,7 @@ function createApp({ mockEdge = null } = {}) {
   app.use('/api/errors', authed, require('./routes/errors'));
   app.use('/api/settings', authed, admin, require('./routes/settings'));
   app.use('/api/evaluation', authed, admin, require('./routes/evaluation'));
+  app.use('/api/export', authed, admin, require('./routes/export'));
   app.use('/api/users', authed, admin, require('./routes/users'));
   if (mockEdge) app.use('/api/dev/mock-edge', authed, admin, require('./routes/dev')(mockEdge));
 

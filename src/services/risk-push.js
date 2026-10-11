@@ -63,6 +63,10 @@ async function evaluateAndNotify() {
       kind: 'RISK', level: cur.current_risk_state, tag: 'aquacast-risk', url: '/#live',
       title: critical ? `CRITICAL: low dissolved oxygen${reminder ? ' (still critical)' : ''}` : 'Warning: dissolved oxygen dropping',
       body: `DO ${doText} at ${time}. ${critical ? 'Immediate operator review needed. Open AquaCast to act.' : 'Below the normal boundary. Check the pond.'}`,
+      fil: {
+        title: critical ? `KRITIKAL: mababa ang dissolved oxygen${reminder ? ' (kritikal pa rin)' : ''}` : 'Babala: bumababa ang dissolved oxygen',
+        body: `DO ${doText} noong ${time}. ${critical ? 'Kailangang suriin agad ng operator. Buksan ang AquaCast para kumilos.' : 'Mas mababa na sa normal. Tingnan ang pond.'}`,
+      },
     });
   } catch (err) {
     result = { sent: 0, error: err.message };

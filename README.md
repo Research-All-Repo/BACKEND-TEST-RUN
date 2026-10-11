@@ -238,6 +238,13 @@ Run `supabase/migrations/006_alert_delivery.sql` once in Supabase. Then:
 - **Early-warning performance** (Model Evaluation): critical events caught early, lead time, false alarms (warnings that were acted on are counted separately), forecast skill against a "no change" baseline on the same readings, time to acknowledge, operator actions, and how many alerts the phones confirmed.
 - **Diagnostics** (System Settings): who can be reached (has a device with notifications on, or nobody), and for the last alerts how many phones confirmed them.
 
+## 17. Filipino, data export, privacy notice, user guide
+
+- **Language (bell → Language):** English or Filipino per device. Translates Live Status, the Operator Decision Guide, the critical alert screen, banners, the User Guide and the phone notifications (each device's choice is stored with its notification registration, migration `007_language.sql`). Strings live in `public/js/i18n.js`; server notification texts are next to each alert. Have a native speaker review the wording.
+- **Data Export & Backup (System Settings, Admin):** one CSV per dataset per month (readings, forecasts, risk, alerts with acknowledgements, activities, aerator, alert delivery, audit log). Download monthly and keep a copy outside the cloud.
+- **Privacy Notice:** `/privacy.html` (English / Filipino), linked from sign-in and the User Guide. Requesting access requires accepting it; the time and notice version are stored with the account. Set `PRIVACY_CONTACT_EMAIL` in Vercel to show the research team's contact address. Have your adviser / data protection officer review the text.
+- **User Guide:** sidebar → Help → User Guide, for everyone (Admin section only for Admins), printable / save as PDF.
+
 ## Tests
 
 ```bash

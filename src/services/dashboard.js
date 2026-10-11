@@ -113,7 +113,7 @@ async function getDataQuality(db, latestTimestamp, now = new Date()) {
   const flags = [];
   const latestMs = new Date(latestTimestamp).getTime();
   if (latestMs - now.getTime() > QUALITY.futureMinutes * 60000) {
-    flags.push({ code: 'CLOCK', message: `The newest reading is time-stamped ${Math.round((latestMs - now.getTime()) / 60000)} min in the future. Check the Raspberry Pi clock (internet time sync).` });
+    flags.push({ code: 'CLOCK', values: { minutes: Math.round((latestMs - now.getTime()) / 60000) }, message: `The newest reading is time-stamped ${Math.round((latestMs - now.getTime()) / 60000)} min in the future. Check the Raspberry Pi clock (internet time sync).` });
   }
   const from = new Date(latestMs - 70 * 60000).toISOString();
   const rows = unwrap(await db.from('raw_observations').select('timestamp_utc, do_mg_l, do_mg_l_status')
@@ -121,17 +121,17 @@ async function getDataQuality(db, latestTimestamp, now = new Date()) {
   const valid = rows.filter((r) => r.do_mg_l_status === 'VALID' && r.do_mg_l !== null).map((r) => Number(r.do_mg_l));
   const last = valid.slice(-QUALITY.stuckReadings);
   if (last.length >= QUALITY.stuckReadings && Math.max(...last) - Math.min(...last) < QUALITY.stuckSpread) {
-    flags.push({ code: 'STUCK', message: `DO has stayed at ${last[last.length - 1].toFixed(2)} mg/L for the last hour without any change. Check that the probe is in the water, connected and clean.` });
+    flags.push({ code: 'STUCK', values: { value: last[last.length - 1].toFixed(2) }, message: `DO has stayed at ${last[last.length - 1].toFixed(2)} mg/L for the last hour without any change. Check that the probe is in the water, connected and clean.` });
   }
   for (let i = 1; i < valid.length; i += 1) {
     if (Math.abs(valid[i] - valid[i - 1]) > QUALITY.jumpMgL) {
-      flags.push({ code: 'JUMP', message: `DO jumped from ${valid[i - 1].toFixed(2)} to ${valid[i].toFixed(2)} mg/L in one reading. Check the probe for air bubbles, dirt or movement before acting on it.` });
+      flags.push({ code: 'JUMP', values: { from: valid[i - 1].toFixed(2), to: valid[i].toFixed(2) }, message: `DO jumped from ${valid[i - 1].toFixed(2)} to ${valid[i].toFixed(2)} mg/L in one reading. Check the probe for air bubbles, dirt or movement before acting on it.` });
       break;
     }
   }
   const latest = valid[valid.length - 1];
   if (latest !== undefined && (latest > QUALITY.maxDo || latest < 0)) {
-    flags.push({ code: 'RANGE', message: `DO ${latest.toFixed(2)} mg/L is outside what a pond can physically hold. The probe likely needs calibration.` });
+    flags.push({ code: 'RANGE', values: { value: latest.toFixed(2) }, message: `DO ${latest.toFixed(2)} mg/L is outside what a pond can physically hold. The probe likely needs calibration.` });
   }
   return { status: flags.length ? 'CHECK' : 'OK', flags };
 }

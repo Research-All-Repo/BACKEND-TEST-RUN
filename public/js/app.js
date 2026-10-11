@@ -3,7 +3,8 @@
 // All data comes from the backend API (see docs/API.md); no Supabase keys in the browser.
 import { get, post, onAuthProblem } from './api.js';
 import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, riskLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
-import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush, turnOnAlerts, isStandaloneApp } from './alerts.js';
+import { t, lang } from './i18n.js';
+import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush, turnOnAlerts, isStandaloneApp, currentPushState } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
 // Installed home-screen app or a phone/tablet: stay signed in by default (persistent cookies,
@@ -30,6 +31,9 @@ const NAV = [
     { id: 'activities', label: 'Activity Log', icon: 'list-checks' },
     { id: 'sensors', label: 'Sensors & Device', icon: 'cpu' },
   ] },
+  { section: 'Help', items: [
+    { id: 'help', label: 'User Guide', icon: 'circle-help' },
+  ] },
   { section: 'Analytics & AI', cls: 'analytics-nav-section', admin: true, items: [
     { id: 'evaluation', label: 'Model Evaluation', icon: 'brain-circuit', iconCls: 'analytics-sidebar-icon', adminBadge: true },
   ] },
@@ -43,6 +47,7 @@ const PAGE_MODULES = {
   live: () => import('./pages/live.js'), forecast: () => import('./pages/forecast.js'), history: () => import('./pages/history.js'),
   alerts: () => import('./pages/alerts.js'), activities: () => import('./pages/activities.js'), sensors: () => import('./pages/sensors.js'),
   evaluation: () => import('./pages/evaluation.js'), users: () => import('./pages/users.js'), settings: () => import('./pages/settings.js'),
+  help: () => import('./pages/help.js'),
 };
 
 const state = {
@@ -85,7 +90,7 @@ function showLogin(msg) {
     </form>
     <div class="auth2-divider"><span>Access Management</span></div>
     <div class="auth2-request-link"><p>Need authorized AquaCast access?</p><button type="button" data-auth="request">Request Access</button></div>
-    <div class="auth2-security-note">${ic('shield-check', 16)}<p>Sign-in is verified by Supabase Auth. Access also requires a verified email and an account approved by an AquaCast Administrator.</p></div>`);
+    <div class="auth2-security-note">${ic('shield-check', 16)}<p>Sign-in is verified by Supabase Auth. Access also requires a verified email and an account approved by an AquaCast Administrator. <a href="/privacy.html" target="_blank" rel="noopener">Privacy Notice</a></p></div>`);
   wireAuthLinks();
   const toggle = root.querySelector('.auth2-password-toggle');
   toggle.addEventListener('click', () => {
@@ -122,6 +127,7 @@ function showRequest(msg) {
       <div class="auth2-form-group"><label>Organization / Assignment</label><input name="organization" type="text" placeholder="e.g. BFAR TOS • Looc, Castillejos, Zambales" required></div>
       <div class="auth2-form-group"><label>Position (optional)</label><input name="position" type="text" placeholder="e.g. Station Operator"></div>
       <div class="auth2-form-group"><label>Password</label><input name="password" type="password" minlength="10" placeholder="At least 10 characters" required autocomplete="new-password"></div>
+      <label class="auth2-consent"><input type="checkbox" name="privacy_consent" required><span>I have read the <a href="/privacy.html" target="_blank" rel="noopener">Privacy Notice</a> and agree to how AquaCast uses my information.</span></label>
       <div class="auth2-request-status">${ic('user-plus', 18)}<div><strong>Administrator Approval Required</strong><p>Verify your email using the link we send, then wait for an Administrator to approve your account in the User Directory.</p></div></div>
       <button type="submit" class="auth2-primary-button">${ic('user-plus', 17)}Submit Access Request</button>
     </form>`);
@@ -130,8 +136,10 @@ function showRequest(msg) {
     e.preventDefault();
     const btn = e.submitter;
     btn.disabled = true;
+    const fd = formData(e.target);
+    if (!fd.privacy_consent) { showRequest({ kind: 'error', text: 'Please read and accept the Privacy Notice to request access.' }); return; }
     try {
-      const r = await post('/api/auth/request-access', formData(e.target), { silentAuth: true });
+      const r = await post('/api/auth/request-access', { ...fd, privacy_consent: true }, { silentAuth: true });
       showLogin({ kind: 'success', text: r.data.message || 'Request submitted. Verify your email, then wait for Administrator approval.' });
     } catch (err) { showRequest({ kind: 'error', text: err.message }); }
   });
@@ -352,13 +360,17 @@ function renderAlertsPrompt(state) {
   const needsInstall = state === 'unsupported' && ios && !isStandaloneApp();
   const blocked = 'Notification' in window && Notification.permission === 'denied';
   if (state === 'on' || state === 'server-off' || (state === 'unsupported' && !needsInstall) || Date.now() < hiddenUntil) { el.innerHTML = ''; return; }
+  const fil = lang() === 'fil';
   const text = needsInstall
-    ? 'On iPhone, alerts only work from the Home Screen app: tap Share, then "Add to Home Screen", open AquaCast from there and turn alerts on.'
+    ? (fil ? 'Sa iPhone, gumagana lang ang alerto sa Home Screen app: pindutin ang Share, piliin ang "Add to Home Screen", buksan ang AquaCast mula roon at buksan ang alerto.'
+      : 'On iPhone, alerts only work from the Home Screen app: tap Share, then "Add to Home Screen", open AquaCast from there and turn alerts on.')
     : blocked
-      ? 'Notifications are blocked for AquaCast on this device. Allow them in the browser or phone settings so Warning and Critical alerts reach you even when the app is closed.'
-      : 'Get Warning and Critical alerts on this device even when AquaCast is closed or the screen is off.';
+      ? (fil ? 'Naka-block ang notification ng AquaCast sa device na ito. Payagan ito sa browser o sa settings ng phone para matanggap ang Babala at Kritikal na alerto kahit sarado ang app.'
+        : 'Notifications are blocked for AquaCast on this device. Allow them in the browser or phone settings so Warning and Critical alerts reach you even when the app is closed.')
+      : (fil ? 'Tumanggap ng Babala at Kritikal na alerto sa device na ito kahit sarado ang AquaCast o patay ang screen.'
+        : 'Get Warning and Critical alerts on this device even when AquaCast is closed or the screen is off.');
   el.innerHTML = html`<div class="aq-alerts-prompt" role="region" aria-label="Phone alerts">${ic('bell-ring', 20)}
-    <div><strong>${needsInstall ? 'Install AquaCast to get alerts' : blocked ? 'Alerts are blocked on this device' : 'Turn on alerts for this device'}</strong><p>${text}</p></div>
+    <div><strong>${needsInstall ? t('promptInstall') : blocked ? t('promptBlocked') : t('promptTurnOn')}</strong><p>${text}</p></div>
     <div class="aq-alerts-prompt-actions">
       ${needsInstall || blocked ? raw('<button type="button" class="aq-btn" data-prompt="how">How to</button>') : raw('<button type="button" class="aq-btn primary" data-prompt="on">Turn on alerts</button>')}
       <button type="button" class="aq-alerts-prompt-later" data-prompt="later">Later</button>
@@ -379,8 +391,8 @@ function renderCalibration() {
   const el = document.getElementById('calibration-banner');
   if (!el) return;
   const c = state.live?.calibration;
-  el.innerHTML = c?.enabled ? html`<div class="aq-calib-banner" role="status">${ic('wrench', 18)}<div><strong>Calibration mode: readings may be inaccurate</strong>
-    The dissolved oxygen probe is being calibrated${c.by ? ` (turned on by ${c.by}${c.since ? ` at ${fmtTime(c.since)}` : ''})` : ''}. Risk alerts and phone notifications are paused${c.until ? ` until ${fmtTime(c.until)}, when they switch back on automatically` : ''} (an Administrator can end it sooner in System Settings).${c.note ? raw(html`<br><em>Note: ${c.note}</em>`) : ''}</div></div>` : '';
+  el.innerHTML = c?.enabled ? html`<div class="aq-calib-banner" role="status">${ic('wrench', 18)}<div><strong>${t('calibTitle')}</strong>
+    ${t('calibText', { by: c.by ? t('calibBy', { by: c.by, at: c.since ? ` ${fmtTime(c.since)}` : '' }) : '', until: c.until ? t('calibUntil', { t: fmtTime(c.until) }) : '' })}${c.note ? raw(html`<br><em>Note: ${c.note}</em>`) : ''}</div></div>` : '';
 }
 
 function renderFreshness(fresh, err) {
@@ -426,25 +438,25 @@ function showCriticalTakeover(test = null) {
   const doR = state.live?.observation?.readings?.do_mg_l;
   const head = test
     ? html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
-      <span class="critical-takeover-eyebrow">TEST ALERT • Critical</span>
-      <h2>This is a test of the Critical alert</h2>
-      <p class="critical-takeover-description">Sent by ${test.sentBy} at ${test.time} to check this device's alert screen, urgent sound and notification. It is not a real reading.</p>
-      <div class="critical-takeover-reading"><span>Test only</span><div><strong>TEST</strong></div><p>Real Critical alerts show the measured DO here.</p></div>`
+      <span class="critical-takeover-eyebrow">${t('testEyebrow')}</span>
+      <h2>${t('testTitle')}</h2>
+      <p class="critical-takeover-description">${t('testDesc', { by: test.sentBy, time: test.time })}</p>
+      <div class="critical-takeover-reading"><span>${t('testOnly')}</span><div><strong>TEST</strong></div><p>${t('testReal')}</p></div>`
     : html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
-      <span class="critical-takeover-eyebrow">Critical • Immediate operator review</span>
-      <h2>Critical low dissolved oxygen</h2>
-      <p class="critical-takeover-description">The latest observation is at or below the critical threshold. Verify the reading and pond conditions, then decide on a management response.</p>
-      <div class="critical-takeover-reading"><span>Current DO</span><div><strong>${doR?.usable ? fmtNum(doR.value) : '--'}</strong><small>mg/L</small></div><p>Observed ${fmtTime(state.live.observation?.timestamp_utc)} • ${ago(state.live.observation?.timestamp_utc)}</p></div>`;
+      <span class="critical-takeover-eyebrow">${t('critEyebrow')}</span>
+      <h2>${t('critTitle')}</h2>
+      <p class="critical-takeover-description">${t('critDesc')}</p>
+      <div class="critical-takeover-reading"><span>${t('critCurrent')}</span><div><strong>${doR?.usable ? fmtNum(doR.value) : '--'}</strong><small>mg/L</small></div><p>${t('critObserved', { time: fmtTime(state.live.observation?.timestamp_utc), ago: ago(state.live.observation?.timestamp_utc) })}</p></div>`;
   openModal({
     overlayClass: 'critical-takeover-overlay', modalClass: 'critical-takeover-dialog', dismissable: false,
     content: html`${raw(head)}
       <div class="aq-crit-aerator" id="crit-aerator"></div>
       <div class="critical-takeover-actions">
-        <button type="button" class="critical-takeover-button secondary" data-go="aeration">${ic('fan', 17)}Aeration panel</button>
-        <button type="button" class="critical-takeover-button secondary" data-go="forecast">${ic('trending-down', 17)}Forecast &amp; Risk</button>
+        <button type="button" class="critical-takeover-button secondary" data-go="aeration">${ic('fan', 17)}${t('critAerationBtn')}</button>
+        <button type="button" class="critical-takeover-button secondary" data-go="forecast">${ic('trending-down', 17)}${t('critForecastBtn')}</button>
       </div>
-      <button type="button" class="critical-takeover-button secondary critical-takeover-acknowledge" data-go="dismiss">${test ? 'Stop the test alarm' : 'I have seen this alert'}</button>
-      ${test ? '' : raw('<p class="critical-takeover-note">Acknowledge the alert formally on the Alerts page so it is recorded with your name.</p>')}`,
+      <button type="button" class="critical-takeover-button secondary critical-takeover-acknowledge" data-go="dismiss">${test ? t('critStopTest') : t('critSeen')}</button>
+      ${test ? '' : raw(html`<p class="critical-takeover-note">${t('critAckNote')}</p>`)}`,
     onMount: (dlg, done) => {
       // any touch on the dialog counts as "someone is responding": stop the repeating alarm
       dlg.addEventListener('pointerdown', stopCriticalAlarm);
@@ -606,6 +618,13 @@ function startPolling() {
 }
 function stopPolling() { if (state.poll) clearInterval(state.poll); if (state.pulse) clearInterval(state.pulse); state.poll = null; state.pulse = null; }
 window.addEventListener('online', refreshLive);
+// language changed (bell → Language): redraw the page and banners in place
+window.addEventListener('aq-lang', () => {
+  if (!state.profile) return;
+  renderCalibration();
+  renderAlertsPrompt(currentPushState());
+  route({ keepScroll: window.scrollY });
+});
 // phones pause background pages: refresh the moment the dashboard is shown again
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.poll) refreshLive(); });
 window.addEventListener('offline', () => renderFreshness(state.live?.freshness, null));

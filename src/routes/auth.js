@@ -9,6 +9,7 @@ const { sanitizeText } = require('../lib/helpers');
 const { rateLimit } = require('../middleware/rate-limit');
 
 const router = express.Router();
+const PRIVACY_VERSION = '2026-10';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function readEmail(body) {
@@ -108,11 +109,13 @@ router.post('/request-access', rateLimit({ windowMs: 60 * 60_000, max: 5, key: (
       if (!fullName) throw E.validation('Full name is required.');
       if (!organization) throw E.validation('Organization / assignment is required.');
       if (password.length < 10) throw E.validation('Password must be at least 10 characters.');
+      const consent = req.body?.privacy_consent === true || req.body?.privacy_consent === 'on' || req.body?.privacy_consent === 'true';
+      if (!consent) throw E.validation('Please read and accept the Privacy Notice to request access.');
 
       const { data, error } = await createAuthClient().auth.signUp({
         email, password,
         options: {
-          data: { full_name: fullName, organization, position },
+          data: { full_name: fullName, organization, position, privacy_consent_at: new Date().toISOString(), privacy_notice_version: PRIVACY_VERSION },
           emailRedirectTo: `${config.publicSiteUrl}/?verified=1`,
         },
       });
@@ -136,6 +139,11 @@ router.post('/request-access', rateLimit({ windowMs: 60 * 60_000, max: 5, key: (
       next(err);
     }
   });
+
+/** GET /api/auth/privacy-info - public: who to contact about personal data, and the notice version. */
+router.get('/privacy-info', (_req, res) => {
+  res.json({ data: { contact: config.privacyContact || null, version: PRIVACY_VERSION } });
+});
 
 /** POST /api/auth/forgot-password { email } - always answers the same way. */
 router.post('/forgot-password', rateLimit({ windowMs: 60 * 60_000, max: 5, key: (req) => `reset:${req.ip}` }),
@@ -165,6 +173,8 @@ router.post('/set-password', rateLimit({ windowMs: 15 * 60_000, max: 10, key: (r
       const password = String(req.body?.password || '');
       if (!token) throw E.validation('The link is missing its token. Open the link from your email again.');
       if (password.length < 10) throw E.validation('Password must be at least 10 characters.');
+      const consent = req.body?.privacy_consent === true || req.body?.privacy_consent === 'on' || req.body?.privacy_consent === 'true';
+      if (!consent) throw E.validation('Please read and accept the Privacy Notice to request access.');
       const { data, error } = await createAuthClient().auth.getUser(token);
       if (error || !data?.user) throw E.sessionExpired();
       const { error: upd } = await getAdminClient().auth.admin.updateUserById(data.user.id, { password });

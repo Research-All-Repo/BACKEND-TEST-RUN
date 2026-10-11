@@ -2,6 +2,7 @@
 // operator guidance, manual aeration REQUEST (never direct control), environment, edge health, recent activity.
 import { get, post, qs } from '../api.js';
 import { html, raw, ic, icon, esc, fmtNum, fmtTime, fmtDateTime, ago, riskKey, riskLabel, doBand, guidanceFor, toast, errorBox, busy } from '../ui.js';
+import { t } from '../i18n.js';
 import { mountChart, doDomain, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 import { openActivityModal, eventIcon, eventLabel, describeEvent } from './shared.js';
 
@@ -130,7 +131,6 @@ export default async function live(root, ctx) {
     const calib = d.calibration?.enabled;
     function heroHtml() {
       const RISK_ICON = { normal: 'circle-check', watch: 'eye', warning: 'triangle-alert', critical: 'octagon-alert', unknown: 'circle-help' };
-      const FRESH = { LIVE: 'Live', SYNC_DELAYED: 'Sync delayed', OFFLINE: 'Offline', NO_DATA: 'No data' };
       const slope = trend?.slope_mg_l_per_hr;
       const urgent = risk === 'WARNING' || risk === 'CRITICAL';
       const fresh = d.freshness?.state || 'NO_DATA';
@@ -140,43 +140,43 @@ export default async function live(root, ctx) {
       return html`<section class="aq-hero aq-hero-${rk}" aria-label="Pond status now">
         <div class="aq-hero-main">
           <div class="aq-hero-top">
-            <span class="aq-hero-risk">${ic(RISK_ICON[rk] || 'circle-help', 16)}${riskLabel(risk)}</span>
-            <span class="aq-hero-fresh fresh-${fresh.toLowerCase()}"><span class="aq-hero-dot"></span>${FRESH[fresh] || fresh}${o ? ` · updated ${ago(o.timestamp_utc).toLowerCase()}` : ''}</span>
-            ${calib ? raw(`<span class="aq-hero-calib">${icon('wrench', 13)}Uncalibrated · alerts paused</span>`) : ''}
-            ${d.data_quality?.flags?.length ? raw(`<span class="aq-hero-calib">${icon('triangle-alert', 13)}Check probe</span>`) : ''}
+            <span class="aq-hero-risk">${ic(RISK_ICON[rk] || 'circle-help', 16)}${t(`risk.${risk}`) || riskLabel(risk)}</span>
+            <span class="aq-hero-fresh fresh-${fresh.toLowerCase()}"><span class="aq-hero-dot"></span>${t(`fresh.${fresh}`)}${o ? ` · ${t('updated', { ago: ago(o.timestamp_utc).toLowerCase() })}` : ''}</span>
+            ${calib ? raw(`<span class="aq-hero-calib">${icon('wrench', 13)}${esc(t('uncalibrated'))}</span>`) : ''}
+            ${d.data_quality?.flags?.length ? raw(`<span class="aq-hero-calib">${icon('triangle-alert', 13)}${esc(t('checkProbe'))}</span>`) : ''}
           </div>
           <div class="aq-hero-reading">
-            <div class="aq-hero-value"><span class="aq-hero-label">Dissolved oxygen now</span>
+            <div class="aq-hero-value"><span class="aq-hero-label">${t('doNow')}</span>
               <div class="aq-hero-number"><strong class="live-do-value ${doClass}">${doValue === null ? '--' : fmtNum(doValue)}</strong><span>mg/L</span></div></div>
             <div class="aq-hero-trend ${trendCls}">${ic(slope === null || slope === undefined ? 'minus' : slope < -0.05 ? 'arrow-down-right' : slope > 0.05 ? 'arrow-up-right' : 'move-right', 22)}
-              <div><b>${trend?.label || 'Not enough data'}</b><small>${slope === null || slope === undefined ? 'needs 3 readings in 1 h' : `${slope > 0 ? '+' : ''}${fmtNum(slope)} mg/L per hour (measured)`}</small></div></div>
+              <div><b>${t(`trend.${trend?.label || 'none'}`)}</b><small>${slope === null || slope === undefined ? t('trendNeeds') : t('trendRate', { v: `${slope > 0 ? '+' : ''}${fmtNum(slope)}` })}</small></div></div>
           </div>
-          ${doR && !doR.usable && o ? raw(html`<p class="aq-hero-note">DO reading not usable this cycle (${doR.quality_status.replace(/_/g, ' ')}).</p>`) : ''}
-          ${d.data_quality?.flags?.length ? raw(html`<div class="aq-hero-quality" role="note">${ic('triangle-alert', 16)}<div><strong>Check the DO probe before acting</strong>
-            ${d.data_quality.flags.map((f) => raw(html`<p>${f.message}</p>`))}<small>Automatic sanity check. It does not change the risk level.</small></div></div>`) : ''}
+          ${doR && !doR.usable && o ? raw(html`<p class="aq-hero-note">${t('doUnusable', { q: doR.quality_status.replace(/_/g, ' ').toLowerCase() })}</p>`) : ''}
+          ${d.data_quality?.flags?.length ? raw(html`<div class="aq-hero-quality" role="note">${ic('triangle-alert', 16)}<div><strong>${t('qualityTitle')}</strong>
+            ${d.data_quality.flags.map((f) => raw(html`<p>${f.values ? t(`q.${f.code}`, f.values) : f.message}</p>`))}<small>${t('qualityNote')}</small></div></div>`) : ''}
           ${d.risk && !d.risk.available && o ? raw(html`<p class="aq-hero-note">${d.risk.message}</p>`) : ''}
-          <div class="aq-hero-limits"><span>Normal at or above <b>${fmtNum(rule.watch_boundary_do_mg_l, 1)} mg/L</b></span><span>Critical at or below <b>${fmtNum(rule.critical_do_mg_l, 1)} mg/L</b></span></div>
+          <div class="aq-hero-limits"><span>${raw(t('limitNormal', { v: esc(fmtNum(rule.watch_boundary_do_mg_l, 1)) }))}</span><span>${raw(t('limitCritical', { v: esc(fmtNum(rule.critical_do_mg_l, 1)) }))}</span></div>
 
         </div>
         <div class="aq-hero-side">
-          <button type="button" class="aq-hero-metric aq-hero-link" data-hero="aeration"><span>${ic('fan', 14)}Aerator</span><strong class="${aerOut === 'ON' ? 'aq-ok-text' : ''}">${aer ? aerOut : 'Not ready'}</strong><small>${aer ? `${titleCaseMode(aer.mode?.applied_mode)} mode${aer.controller?.stale ? ' · report is old' : ''}` : 'Controller not set up'}</small></button>
-          <div class="aq-hero-metric"><span>${ic('thermometer', 14)}Water temperature</span><strong>${reading('water_temp_c', (v) => `${fmtNum(v, 1)} °C`)}</strong><small>Probe depth reading</small></div>
-          <div class="aq-hero-metric"><span>${ic('droplets', 14)}DO saturation</span><strong>${reading('do_saturation_pct', (v) => `${fmtNum(v, 0)} %`)}</strong><small>Of the maximum at this temperature</small></div>
-          <div class="aq-hero-metric"><span>${ic('radio', 14)}Latest reading</span><strong>${o ? fmtTime(o.timestamp_utc) : '--'}</strong><small>${o ? `${o.record_status.toLowerCase()} · every 10 min` : 'Waiting for first cycle'}</small></div>
+          <button type="button" class="aq-hero-metric aq-hero-link" data-hero="aeration"><span>${ic('fan', 14)}${t('aerator')}</span><strong class="${aerOut === 'ON' ? 'aq-ok-text' : ''}">${aer ? aerOut : t('aeratorNotReady')}</strong><small>${aer ? `${t('modeSuffix', { m: titleCaseMode(aer.mode?.applied_mode) })}${aer.controller?.stale ? ` · ${t('reportOld')}` : ''}` : t('aeratorNoController')}</small></button>
+          <div class="aq-hero-metric"><span>${ic('thermometer', 14)}${t('waterTemp')}</span><strong>${reading('water_temp_c', (v) => `${fmtNum(v, 1)} °C`)}</strong><small>${t('probeDepth')}</small></div>
+          <div class="aq-hero-metric"><span>${ic('droplets', 14)}${t('doSat')}</span><strong>${reading('do_saturation_pct', (v) => `${fmtNum(v, 0)} %`)}</strong><small>${t('doSatNote')}</small></div>
+          <div class="aq-hero-metric"><span>${ic('radio', 14)}${t('latest')}</span><strong>${o ? fmtTime(o.timestamp_utc) : '--'}</strong><small>${o ? t('every10', { status: o.record_status.toLowerCase() }) : t('waitingFirst')}</small></div>
         </div>
         <div class="aq-hero-guide-row">
           <div class="aq-guide">
-            <div class="aq-guide-head"><span class="aq-guide-kicker">${ic('compass', 15)}Operator Decision Guide</span><span class="aq-guide-hitl">Human-in-the-loop</span></div>
+            <div class="aq-guide-head"><span class="aq-guide-kicker">${ic('compass', 15)}${t('guideKicker')}</span><span class="aq-guide-hitl">${t('guideHitl')}</span></div>
             <strong class="aq-guide-title">${g.title}</strong>
             <p class="aq-guide-desc">${g.description}</p>
             <ol class="aq-guide-steps">${g.steps.map((st) => raw(html`<li>${st}</li>`))}</ol>
-            <p class="aq-guide-note">${ic('user-check', 14)}AquaCast supports the decision; the operator makes it. Aeration is only switched when an operator requests it.</p>
+            <p class="aq-guide-note">${ic('user-check', 14)}${t('guideNote')}</p>
           </div>
 
           <div class="aq-hero-actions">
-            ${urgent ? raw(`<button type="button" class="aq-hero-btn danger" data-hero="aeration">${icon('fan', 17)}Go to aeration control</button>`) : ''}
-            <button type="button" class="aq-hero-btn ${urgent ? '' : 'primary'}" data-hero="log">${ic('clipboard-pen', 16)}Record what you did</button>
-            ${d.active_alerts ? raw(`<button type="button" class="aq-hero-btn" data-go="alerts">${icon('bell', 16)}${d.active_alerts} active alert${d.active_alerts > 1 ? 's' : ''}</button>`) : ''}
+            ${urgent ? raw(`<button type="button" class="aq-hero-btn danger" data-hero="aeration">${icon('fan', 17)}${esc(t('goAeration'))}</button>`) : ''}
+            <button type="button" class="aq-hero-btn ${urgent ? '' : 'primary'}" data-hero="log">${ic('clipboard-pen', 16)}${t('recordAction')}</button>
+            ${d.active_alerts ? raw(`<button type="button" class="aq-hero-btn" data-go="alerts">${icon('bell', 16)}${esc(t('activeAlerts', { n: d.active_alerts }).replace('(s)', d.active_alerts > 1 ? 's' : ''))}</button>`) : ''}
           </div>
         </div>
       </section>`;

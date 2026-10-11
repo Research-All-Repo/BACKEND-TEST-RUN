@@ -22,15 +22,26 @@ function configError() {
   try { setup(); return null; } catch (e) { return e.message; }
 }
 
-/** Save (or refresh) one browser's subscription for this user. */
-async function saveSubscription(userId, sub, userAgent) {
+/** Save (or refresh) one browser's subscription for this user, with its notification language. */
+async function saveSubscription(userId, sub, userAgent, lang = 'en') {
   if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) throw new Error('Invalid push subscription.');
   if (!/^https:\/\//.test(sub.endpoint)) throw new Error('Push endpoint must be https.');
-  const { error } = await getAdminClient().from('push_subscriptions').upsert({
-    user_id: userId, endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth_secret: sub.keys.auth,
-    user_agent: String(userAgent || '').slice(0, 200), last_error: null,
-  }, { onConflict: 'endpoint' });
+  const row = { user_id: userId, endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth_secret: sub.keys.auth,
+    user_agent: String(userAgent || '').slice(0, 200), last_error: null, lang: lang === 'fil' ? 'fil' : 'en' };
+  let { error } = await getAdminClient().from('push_subscriptions').upsert(row, { onConflict: 'endpoint' });
+  if (error && /lang/.test(error.message || '')) { // migration 007 not run yet: save without the language
+    delete row.lang;
+    ({ error } = await getAdminClient().from('push_subscriptions').upsert(row, { onConflict: 'endpoint' }));
+  }
   if (error) throw error;
+}
+
+/** Change the notification language of one of this user's devices. */
+async function setLanguage(endpoint, userId, lang) {
+  const { error } = await getAdminClient().from('push_subscriptions').update({ lang: lang === 'fil' ? 'fil' : 'en' })
+    .eq('endpoint', endpoint).eq('user_id', userId);
+  if (error && !/lang/.test(error.message || '')) throw error;
+  return !error;
 }
 
 async function removeSubscription(endpoint) {
@@ -125,4 +136,4 @@ async function sendTo(subs, payload) {
   return { sent, failed, removed, ...(errors.length ? { errors: errors.slice(0, 3) } : {}) };
 }
 
-module.exports = { enabled, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, sendOne, hasSubscription, listSubscriptions, configError };
+module.exports = { enabled, setLanguage, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, sendOne, hasSubscription, listSubscriptions, configError };

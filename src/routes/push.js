@@ -20,7 +20,7 @@ router.get('/public-key', (_req, res) => res.json({ data: { enabled: push.enable
 router.post('/subscribe', async (req, res, next) => {
   try {
     if (!push.enabled()) throw E.validation('Instant phone alerts are not configured on the server yet (VAPID keys missing).');
-    await push.saveSubscription(req.auth.user.id, req.body?.subscription, req.get('user-agent'));
+    await push.saveSubscription(req.auth.user.id, req.body?.subscription, req.get('user-agent'), req.body?.lang);
     res.status(201).json({ data: { subscribed: true } });
   } catch (err) {
     next(err.code ? err : E.validation(err.message));
@@ -45,6 +45,7 @@ router.post('/test-me', async (req, res, next) => {
       .then(() => sendAlert({
         kind: 'TEST', level: 'CRITICAL', test: true, tag: 'aquacast-device-test', url: '/#live', userIds: [req.auth.user.id], endpoint,
         title: 'TEST: AquaCast alert on this phone', body: 'If you can read this with AquaCast closed, Warning and Critical alerts will reach this phone.',
+        fil: { title: 'PAGSUBOK: AquaCast alerto sa phone na ito', body: 'Kung nababasa mo ito habang sarado ang AquaCast, matatanggap ng phone na ito ang Babala at Kritikal na alerto.' },
       }))
       .catch((e) => console.warn('[push] device test failed:', e.message));
     waitUntil(job);
@@ -109,6 +110,16 @@ async function recentAlerts(db) {
     return { ...d, push_sent: count(['SENT', 'CONFIRMED']), push_confirmed: count(['CONFIRMED']), push_failed: count(['FAILED']) };
   });
 }
+
+/** POST /api/push/language { endpoint, lang } - notifications for this device in English ('en') or Filipino ('fil'). */
+router.post('/language', async (req, res, next) => {
+  try {
+    const lang = req.body?.lang === 'fil' ? 'fil' : 'en';
+    const endpoint = String(req.body?.endpoint || '');
+    const saved = endpoint ? await push.setLanguage(endpoint, req.auth.user.id, lang) : false;
+    res.json({ data: { lang, saved } });
+  } catch (err) { next(err); }
+});
 
 router.post('/unsubscribe', async (req, res, next) => {
   try {

@@ -57,6 +57,8 @@ router.post('/test-broadcast', requireRole('ADMIN'), async (req, res, next) => {
       kind: 'TEST', level, test: true, tag: 'aquacast-test', url: '/#live',
       title: level === 'CRITICAL' ? 'TEST: Critical DO alert' : 'TEST: DO Warning alert',
       body: `Test sent by ${sentBy}. Not a real reading. Open AquaCast to see the alert screen.`,
+      fil: { title: level === 'CRITICAL' ? 'PAGSUBOK: Kritikal na DO alerto' : 'PAGSUBOK: Babala sa DO',
+        body: `Pagsubok mula kay ${sentBy}. Hindi ito totoong reading. Buksan ang AquaCast para makita ang alert screen.` },
     }).catch((e) => ({ error: e.message }));
     await getAdminClient().from('dashboard_audit_log').update({ details: { level, sent_by: sentBy, note: 'Test of the alert sound and notification on all signed-in devices', sent: pushed.sent || 0, failed: pushed.failed || 0 } })
       .eq('audit_id', data.audit_id).then(() => null, () => null);

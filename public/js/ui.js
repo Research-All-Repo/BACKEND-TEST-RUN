@@ -1,5 +1,6 @@
 // Shared DOM, formatting and risk helpers for the AquaCast dashboard.
 import { icon } from './icons.js';
+import { lang, GUIDANCE_FIL } from './i18n.js';
 
 export { icon };
 
@@ -100,7 +101,7 @@ export const GUIDANCE = {
   DATA_UNAVAILABLE: { title: 'Verify data availability', description: 'AquaCast cannot provide complete decision support until valid current and forecast information is available.',
     steps: ['Check whether the current DO observation is available.', 'Verify that all required forecast horizons were generated successfully.', 'Review sensor and device status if data remain unavailable.'] },
 };
-export const guidanceFor = (s) => GUIDANCE[s] || GUIDANCE.DATA_UNAVAILABLE;
+export const guidanceFor = (s) => { const G = lang() === 'fil' ? GUIDANCE_FIL : GUIDANCE; return G[s] || G.DATA_UNAVAILABLE; };
 
 // ---------------- feedback ----------------
 export function toast(message, kind = '') {

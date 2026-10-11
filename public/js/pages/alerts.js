@@ -1,7 +1,8 @@
 // Alerts (risk notifications): active (unacknowledged, last 24 h) and acknowledged history.
 // Acknowledging records who reviewed it; it does not mean the pond condition is resolved.
 import { get, post } from '../api.js';
-import { html, raw, ic, fmtNum, fmtDateTime, ago, riskKey, riskLabel, toast, errorBox, loadingBox, openModal, busy } from '../ui.js';
+import { html, raw, ic, fmtNum, fmtDateTime, ago, riskKey, riskLabel, guidanceFor, toast, errorBox, loadingBox, openModal, busy } from '../ui.js';
+import { lang } from '../i18n.js';
 
 const SEV_ICON = { CRITICAL: 'octagon-alert', WARNING: 'triangle-alert', WATCH: 'eye' };
 
@@ -82,7 +83,7 @@ export default async function alerts(root, ctx) {
         <div class="alerts2-evidence-card">${ic('trending-down', 15)}<div><span>Lowest forecast</span><strong>${a.min_forecast_do_mg_l !== null ? `${fmtNum(a.min_forecast_do_mg_l)} mg/L` : '--'}</strong></div></div>
         <div class="alerts2-evidence-card">${ic('scale', 15)}<div><span>Rule</span><strong>${a.rule_reference?.rule_version || a.rule_version || '--'}</strong></div></div>
       </div>
-      <div class="alerts2-guidance">${ic('clipboard-check', 15)}<div><span>${a.guidance.title}</span>${a.guidance.steps.map((s) => raw(html`<p>• ${s}</p>`))}</div></div>
+      <div class="alerts2-guidance">${ic('clipboard-check', 15)}<div><span>${(lang() === 'fil' ? guidanceFor(a.current_risk_state) : a.guidance).title}</span>${(lang() === 'fil' ? guidanceFor(a.current_risk_state) : a.guidance).steps.map((s) => raw(html`<p>• ${s}</p>`))}</div></div>
       <div class="alerts2-alert-footer"><div class="alerts2-alert-id">Alert <strong>${a.risk_id.slice(0, 8)}</strong></div>
         <button type="button" class="alerts2-acknowledge-button" data-ack="${a.risk_id}">${ic('check', 15)}Acknowledge</button></div>
     </article>`;

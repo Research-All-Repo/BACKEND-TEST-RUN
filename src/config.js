@@ -62,6 +62,8 @@ const config = {
     criticalReminderMinutes: num('PUSH_CRITICAL_REMINDER_MINUTES', 30), staleMinutes: num('PUSH_STALE_MINUTES', 30),
   },
 
+  // Shown on the Privacy Notice page as the contact for data-privacy requests (RA 10173)
+  privacyContact: String(process.env.PRIVACY_CONTACT_EMAIL || '').trim(),
   // Unacknowledged CRITICAL alert -> escalation push to everyone after this many minutes
   escalateAfterMinutes: num('ESCALATE_AFTER_MINUTES', 15),
   // Calibration mode switches itself off after this many hours unless an Admin picks another duration

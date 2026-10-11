@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Privacy Notice · AquaCast</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/img/icons/favicon-64.png">
+  <meta name="theme-color" content="#ffffff">
+  <script src="/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/css/privacy.css">
+  <script type="module" src="/js/privacy.js"></script>
+</head>
+<body>
+  <main class="pv">
+    <header class="pv-head">
+      <a class="pv-brand" href="/"><img src="/img/aquacast-logo.webp" alt="" width="40" height="40"><span>AquaCast</span></a>
+      <div class="pv-lang" role="group" aria-label="Language"><button type="button" data-lang="en">English</button><button type="button" data-lang="fil">Filipino</button></div>
+    </header>
+
+    <article lang="en" data-lang-block="en">
+      <p class="pv-eyebrow">Data Privacy Act of 2012 (RA 10173)</p>
+      <h1>Privacy Notice</h1>
+      <p class="pv-meta">Version <span data-version>2026-10</span> · applies to the AquaCast monitoring dashboard</p>
+      <p>AquaCast is a research prototype that monitors dissolved oxygen in a fish pond and warns the people responsible for it. This notice explains what personal information the dashboard keeps about its users, why, and what you can ask us to do with it.</p>
+
+      <h2>What we collect</h2>
+      <ul>
+        <li><b>Account details</b> you enter when requesting access: full name, email address, organization / assignment and position. Your password is handled by the sign-in service (Supabase Auth); AquaCast never stores or sees it in readable form.</li>
+        <li><b>Your actions in the dashboard</b>: sign-in times, alerts you acknowledged, pond activities you recorded, aerator requests and setting changes, each with your name and the time.</li>
+        <li><b>Your devices, for alerts</b>: if you turn on notifications, the device's notification address, browser / phone type, chosen language, and whether each alert reached it.</li>
+        <li><b>Error reports</b>: when a page fails, the page, the error message and the browser type (kept 30 days).</li>
+      </ul>
+      <p>Pond readings (dissolved oxygen, temperature and similar) are not personal information.</p>
+
+      <h2>Why we use it</h2>
+      <ul>
+        <li>To let only approved people into the dashboard and to give each person the right role.</li>
+        <li>To send Warning and Critical alerts to your devices.</li>
+        <li>To keep a record of who did what (accountability and safety of the pond).</li>
+        <li>For the research evaluation, for example how quickly alerts were acknowledged. Results are reported in summary form; names are not published.</li>
+      </ul>
+
+      <h2>Who can see it</h2>
+      <ul>
+        <li><b>Administrators</b> (the research team) can see user details, actions and device status.</li>
+        <li><b>Other users</b> can see your name on records you created, such as acknowledgements and activities.</li>
+        <li><b>Service providers</b> that run the system: Supabase (database and sign-in), Vercel (website hosting) and the push services of Google, Apple or Mozilla (they deliver notifications and only receive the encrypted alert). These servers may be outside the Philippines.</li>
+      </ul>
+      <p>We do not sell or share your information for advertising.</p>
+
+      <h2>How long we keep it</h2>
+      <p>Account details and activity records are kept while you have access and for the duration of the AquaCast study, then deleted or anonymized. Error reports are deleted after 30 days. Device registrations are removed when you sign out of that device or turn its notifications off.</p>
+
+      <h2>How it is protected</h2>
+      <p>Encrypted connections (HTTPS), sign-in sessions that scripts cannot read, database rules that limit each role to what it needs, and an audit log of every change.</p>
+
+      <h2>Your rights</h2>
+      <p>Under the Data Privacy Act you may ask to be informed, to access your information, to correct it, to object to its processing, to have it erased or blocked, and to receive a copy (data portability). You may also file a complaint with the National Privacy Commission.</p>
+
+      <h2>Contact</h2>
+      <p>For privacy requests contact <span data-contact>the AquaCast research team through your AquaCast Administrator</span>.</p>
+      <p>By requesting access to AquaCast you confirm that you have read this notice and agree to the processing described above.</p>
+    </article>
+
+    <article lang="fil" data-lang-block="fil" hidden>
+      <p class="pv-eyebrow">Data Privacy Act of 2012 (RA 10173)</p>
+      <h1>Abiso sa Privacy</h1>
+      <p class="pv-meta">Bersyon <span data-version>2026-10</span> · para sa AquaCast monitoring dashboard</p>
+      <p>Ang AquaCast ay isang research prototype na nagbabantay sa dissolved oxygen ng fish pond at nagbibigay-babala sa mga taong may hawak nito. Ipinaliliwanag dito kung anong personal na impormasyon ang itinatago ng dashboard, bakit, at ano ang puwede mong hilingin tungkol dito.</p>
+
+      <h2>Ano ang kinokolekta namin</h2>
+      <ul>
+        <li><b>Detalye ng account</b> na inilagay mo sa paghingi ng access: buong pangalan, email, organisasyon / assignment at posisyon. Ang password mo ay hawak ng sign-in service (Supabase Auth); hindi ito nakikita o naitatago ng AquaCast nang nababasa.</li>
+        <li><b>Mga ginawa mo sa dashboard</b>: oras ng pag-sign in, mga alertong in-acknowledge mo, mga gawaing itinala mo sa pond, mga request sa aerator at pagbabago ng settings, kasama ang pangalan mo at oras.</li>
+        <li><b>Mga device mo, para sa alerto</b>: kung binuksan mo ang notification, ang notification address ng device, uri ng browser / phone, napiling wika, at kung natanggap nito ang bawat alerto.</li>
+        <li><b>Ulat ng error</b>: kapag nagka-problema ang isang page, ang page, ang mensahe ng error at uri ng browser (itinatago nang 30 araw).</li>
+      </ul>
+      <p>Ang mga reading ng pond (dissolved oxygen, temperatura at iba pa) ay hindi personal na impormasyon.</p>
+
+      <h2>Bakit namin ito ginagamit</h2>
+      <ul>
+        <li>Para ang mga aprubadong tao lang ang makapasok at may tamang tungkulin ang bawat isa.</li>
+        <li>Para maipadala ang Babala at Kritikal na alerto sa mga device mo.</li>
+        <li>Para may tala kung sino ang gumawa ng ano (pananagutan at kaligtasan ng pond).</li>
+        <li>Para sa pagsusuri ng pananaliksik, halimbawa kung gaano kabilis na-acknowledge ang mga alerto. Buod lang ang iniuulat; hindi inilalathala ang mga pangalan.</li>
+      </ul>
+
+      <h2>Sino ang nakakakita</h2>
+      <ul>
+        <li><b>Mga Administrator</b> (research team): detalye ng user, mga ginawa at kalagayan ng device.</li>
+        <li><b>Ibang user</b>: ang pangalan mo sa mga talang ginawa mo, gaya ng acknowledgement at activity.</li>
+        <li><b>Mga service provider</b> na nagpapatakbo ng sistema: Supabase (database at sign-in), Vercel (website) at ang push service ng Google, Apple o Mozilla (naghahatid ng notification at naka-encrypt na alerto lang ang natatanggap). Maaaring nasa labas ng Pilipinas ang mga server na ito.</li>
+      </ul>
+      <p>Hindi namin ibinebenta o ibinabahagi ang impormasyon mo para sa advertising.</p>
+
+      <h2>Gaano katagal itinatago</h2>
+      <p>Itinatago ang detalye ng account at mga tala habang may access ka at habang tumatakbo ang pag-aaral ng AquaCast, saka ito buburahin o gagawing anonymous. Binubura ang ulat ng error pagkalipas ng 30 araw. Tinatanggal ang registration ng device kapag nag-sign out ka roon o pinatay ang notification nito.</p>
+
+      <h2>Paano ito pinoprotektahan</h2>
+      <p>Naka-encrypt na koneksyon (HTTPS), sign-in session na hindi mababasa ng ibang script, mga patakaran sa database na naglilimita sa bawat tungkulin, at audit log ng bawat pagbabago.</p>
+
+      <h2>Ang iyong mga karapatan</h2>
+      <p>Ayon sa Data Privacy Act, may karapatan kang malaman, makita, maitama, tumutol sa pagproseso, ipabura o ipa-block, at makakuha ng kopya ng impormasyon mo. Maaari ka ring magreklamo sa National Privacy Commission.</p>
+
+      <h2>Makipag-ugnayan</h2>
+      <p>Para sa mga hiling tungkol sa privacy, makipag-ugnayan sa <span data-contact>AquaCast research team sa pamamagitan ng iyong AquaCast Administrator</span>.</p>
+      <p>Sa paghingi ng access sa AquaCast, kinukumpirma mong nabasa mo ang abisong ito at pumapayag ka sa pagprosesong inilarawan.</p>
+    </article>
+    <footer class="pv-foot"><a href="/">Back to AquaCast</a></footer>
+  </main>
+</body>
+</html>

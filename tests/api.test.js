@@ -87,9 +87,13 @@ test('state-changing request without dashboard header is rejected (CSRF)', async
 });
 
 test('request access creates a PENDING account that cannot sign in', async () => {
-  const r = await new Client().post('/api/auth/request-access', { full_name: 'Pending Person', email: staffEmail, password: staffPw, organization: 'BFAR TOS' });
+  const noConsent = await new Client().post('/api/auth/request-access', { full_name: 'Pending Person', email: staffEmail, password: staffPw, organization: 'BFAR TOS' });
+  assert.equal(noConsent.status, 400, 'the Privacy Notice must be accepted');
+  const r = await new Client().post('/api/auth/request-access', { full_name: 'Pending Person', email: staffEmail, password: staffPw, organization: 'BFAR TOS', privacy_consent: true });
   assert.equal(r.status, 202, JSON.stringify(r.json));
   const { data } = await admin.from('user_access_profiles').select('*').eq('email', staffEmail).single();
+  const { data: au } = await admin.auth.admin.getUserById(data.user_id);
+  assert.ok(au.user.user_metadata?.privacy_consent_at, 'consent time is stored with the account');
   assert.equal(data.status, 'PENDING');
   assert.equal(data.role, 'BFAR_STAFF');
   staffId = data.user_id;
@@ -293,6 +297,21 @@ test('delivery receipts must be signed; diagnostics list who can be reached', as
   assert.ok(row, 'active staff user is listed');
   assert.equal(row.reachable, row.devices > 0);
   assert.equal((await staffC.get('/api/push/diagnostics')).status, 403);
+});
+
+test('research data export: admins get CSV per dataset, staff are refused', async () => {
+  const q = `?from=${encodeURIComponent(new Date(Date.now() - 3 * 86400_000).toISOString())}&to=${encodeURIComponent(new Date().toISOString())}`;
+  for (const ds of ['observations', 'forecasts', 'risk', 'alerts', 'activities', 'aerator', 'audit']) {
+    const r = await adminC.get(`/api/export/${ds}.csv${q}`);
+    assert.equal(r.status, 200, ds);
+    assert.match(r.headers.get('content-type'), /text\/csv/, ds);
+    assert.ok(r.text.split('\n').length >= 1, ds);
+  }
+  assert.match((await adminC.get(`/api/export/observations.csv${q}`)).text.replace(/^\uFEFF/, ''), /^observation_id,timestamp_utc,/);
+  assert.equal((await adminC.get('/api/export/secrets.csv')).status, 400);
+  assert.equal((await staffC.get(`/api/export/observations.csv${q}`)).status, 403);
+  const info = await new Client().get('/api/auth/privacy-info');
+  assert.equal(info.status, 200, 'privacy info is public');
 });
 
 test('push hooks refuse calls without the shared secret', async () => {

@@ -34,9 +34,9 @@ async function loadRecipients({ userIds = null, endpoint = null } = {}) {
   if (error) throw error;
   const ids = people.map((p) => p.user_id);
   if (!ids.length || !push.enabled()) return { people, subs: [] };
-  let sq = db.from('push_subscriptions').select('subscription_id, user_id, endpoint, p256dh, auth_secret').in('user_id', ids);
-  if (endpoint) sq = sq.eq('endpoint', endpoint);
-  const { data: subs, error: subErr } = await sq;
+  const query = (cols) => { let sq = db.from('push_subscriptions').select(cols).in('user_id', ids); if (endpoint) sq = sq.eq('endpoint', endpoint); return sq; };
+  let { data: subs, error: subErr } = await query('subscription_id, user_id, endpoint, p256dh, auth_secret, lang');
+  if (subErr && /lang/.test(subErr.message || '')) ({ data: subs, error: subErr } = await query('subscription_id, user_id, endpoint, p256dh, auth_secret'));
   if (subErr) throw subErr;
   return { people, subs: subs || [] };
 }
@@ -45,11 +45,12 @@ async function loadRecipients({ userIds = null, endpoint = null } = {}) {
  * Send an alert. options:
  *   kind: RISK | STALE | RECOVERY | ESCALATION | TEST
  *   level: CRITICAL | WARNING | INFO   (drives the phone's vibration pattern)
- *   title, body, url, tag, test        (the notification)
+ *   title, body, url, tag, test        (the notification, English)
+ *   fil: { title, body }               (the same notification in Filipino, for devices set to Filipino)
  *   userIds, endpoint                  (limit recipients, e.g. the "test this phone" button)
  */
 async function sendAlert(opts) {
-  const { kind, level, title, body, url = '/#live', tag = 'aquacast-risk', test = false, userIds = null, endpoint = null } = opts;
+  const { kind, level, title, body, url = '/#live', tag = 'aquacast-risk', test = false, userIds = null, endpoint = null, fil = null } = opts;
   const db = getAdminClient();
   const dispatchId = crypto.randomUUID();
   const { people, subs } = await loadRecipients({ userIds, endpoint });
@@ -71,7 +72,8 @@ async function sendAlert(opts) {
   let failed = 0; let removed = 0; const errors = [];
   await Promise.all(subs.map(async (s, i) => {
     const row = rows[i];
-    const r = await push.sendOne(s, { level, title, body, url, tag, test, sentAt, receipt: { id: row.delivery_id, sig: signReceipt(row.delivery_id) } });
+    const text = s.lang === 'fil' && fil ? fil : { title, body };
+    const r = await push.sendOne(s, { level, title: text.title, body: text.body, url, tag, test, sentAt, receipt: { id: row.delivery_id, sig: signReceipt(row.delivery_id) } });
     if (r.ok) { reached.add(s.user_id); return; }
     if (r.removed) removed += 1; else { failed += 1; errors.push(r.error); }
     row.status = 'FAILED';

@@ -11,6 +11,7 @@
 // until someone touches the critical dialog. Nothing is sent when the app is closed.
 import { html, raw, ic, fmtNum, fmtTime, openModal, toast } from './ui.js';
 import { get, post } from './api.js';
+import { lang, setLang, t as tr, LANGS } from './i18n.js';
 
 const KEY = 'aq-alert-state';
 const SOUND_KEY = 'aq-alert-sound';
@@ -251,7 +252,7 @@ export async function syncPush() {
     const same = sub?.options?.applicationServerKey && new Uint8Array(sub.options.applicationServerKey).every((v, i) => v === key[i]);
     if (sub && !same) { await sub.unsubscribe(); sub = null; }
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-    await post('/api/push/subscribe', { subscription: sub.toJSON() });
+    await post('/api/push/subscribe', { subscription: sub.toJSON(), lang: lang() });
     pushState = 'on';
   } catch { pushState = 'error'; }
   window.dispatchEvent(new CustomEvent('aq-push-state', { detail: pushState })); // e.g. hides the "turn on alerts" card
@@ -306,6 +307,9 @@ export function openAlertSettings() {
             <button type="button" class="aq-btn aq-test-critical" data-act="test-critical">${ic('play', 14)}Test Critical sound</button>
           </div>
           <p>Warning plays a soft two-note chime. Critical plays a clear three-note chime and repeats every 30 seconds until someone taps the critical alert.</p></section>
+        <section><h4>${ic('text', 16)}${tr('language')}</h4>
+          <div class="aq-zoom-presets aq-theme-choice" role="group" aria-label="${tr('language')}">${Object.entries(LANGS).map(([k, v]) => raw(`<button type="button" data-lang-choice="${k}" class="${lang() === k ? 'active' : ''}" aria-pressed="${lang() === k}">${v}</button>`))}</div>
+          <p class="aq-settings-note">${tr('languageNote')}</p></section>
         <section><h4>${ic('moon', 16)}Appearance</h4>
           <div class="aq-zoom-presets aq-theme-choice" role="group" aria-label="Colour theme">${['auto', 'light', 'dark'].map((t) => raw(`<button type="button" data-theme-choice="${t}" class="${(window.aqTheme?.get() || 'auto') === t ? 'active' : ''}" aria-pressed="${(window.aqTheme?.get() || 'auto') === t}">${{ auto: 'Auto', light: 'Light', dark: 'Dark' }[t]}</button>`))}</div>
           <p class="aq-settings-note">Auto follows this device's light / dark setting. Dark is easier on the eyes for night checks.</p></section>
@@ -335,6 +339,15 @@ export function openAlertSettings() {
         } catch (err) { toast(err.message, 'error'); } finally { btn.disabled = false; }
       });
       m.querySelector('[data-act=push]')?.addEventListener('click', async () => { await syncPush(); close(); openAlertSettings(); });
+      m.querySelectorAll('[data-lang-choice]').forEach((b) => b.addEventListener('click', async () => {
+        if (b.dataset.langChoice === lang()) return;
+        setLang(b.dataset.langChoice);
+        close(); openAlertSettings(); // re-open in the new language
+        try { // phone notifications follow the same language
+          const sub = await (await navigator.serviceWorker?.ready)?.pushManager?.getSubscription();
+          if (sub) await post('/api/push/language', { endpoint: sub.endpoint, lang: lang() });
+        } catch { /* notifications keep the previous language until the next registration */ }
+      }));
       m.querySelectorAll('[data-theme-choice]').forEach((b) => b.addEventListener('click', () => {
         window.aqTheme?.set(b.dataset.themeChoice);
         m.querySelectorAll('[data-theme-choice]').forEach((x) => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });

@@ -96,6 +96,17 @@ export default async function settings(root, ctx) {
 
       ${raw(diagnosticsHtml(diag))}
 
+      <section class="dashboard-panel settings2-storage-panel" id="data-export">
+        <div class="settings2-section-header">${ic('download', 18)}<div><span class="settings2-eyebrow">RESEARCH DATA</span><h3>Data Export &amp; Backup</h3>
+          <p>Download the study data as CSV files (open in Excel or Google Sheets). Do this at the end of every month and keep the files somewhere safe (Google Drive, USB): this is your backup outside the cloud database.</p></div></div>
+        <div class="aq-export-row">
+          <label class="aq-field">Month<input type="month" id="export-month" value="${new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }).slice(0, 7)}"></label>
+          <p class="aq-export-note" id="export-range"></p>
+        </div>
+        <div class="aq-export-grid" id="export-links"></div>
+        <p class="aq-settings-note">Each file covers one month (Philippine time). Person names appear only in the alerts and audit files; share those only within the research team.</p>
+      </section>
+
       <section class="dashboard-panel settings2-storage-panel">
         <div class="settings2-section-header">${ic('wrench', 18)}<div><span class="settings2-eyebrow">SENSOR CALIBRATION</span><h3>Calibration Mode</h3>
           <p>Turn this on while the DO probe is being calibrated or tested. Every dashboard then marks readings as uncalibrated, and no risk or "no data" alarms are sent (test alerts still work). Turn it off when the probe is ready.</p></div></div>
@@ -179,6 +190,23 @@ export default async function settings(root, ctx) {
         ctx.refreshLive();
       } catch (err) { toast(err.message, 'error'); }
     })));
+    const EXPORTS = [['observations', 'Sensor readings', 'Every 10-minute reading with its recorded risk level'], ['forecasts', 'Forecasts', '+30 to +120 min predictions'],
+      ['risk', 'Risk assessments', 'Risk level and forecast outlook per reading'], ['alerts', 'Alerts', 'Warning / Critical alerts and who acknowledged them'],
+      ['activities', 'Activity log', 'Feeding, aeration, water exchange and other records'], ['aerator', 'Aerator', 'Requests and controller answers'],
+      ['deliveries', 'Alert delivery', 'Devices sent / confirmed for each alert'], ['audit', 'Audit log', 'Every recorded action (who, what, when)']];
+    const exportLinks = () => {
+      const ym = page.querySelector('#export-month')?.value;
+      if (!ym) return;
+      const [y, mo] = ym.split('-').map(Number);
+      const from = `${ym}-01T00:00:00+08:00`;
+      const next = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
+      const to = `${next}-01T00:00:00+08:00`;
+      const q = `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+      page.querySelector('#export-range').textContent = `${new Date(`${ym}-15T00:00:00+08:00`).toLocaleDateString('en-PH', { month: 'long', year: 'numeric', timeZone: 'Asia/Manila' })}: one CSV per dataset.`;
+      page.querySelector('#export-links').innerHTML = EXPORTS.map(([id, name, note]) => html`<a class="aq-export-link" href="/api/export/${id}.csv${q}" download>${ic('download', 15)}<span><strong>${name}</strong><small>${note}</small></span></a>`).join('');
+    };
+    page.querySelector('#export-month')?.addEventListener('change', exportLinks);
+    exportLinks();
     page.querySelector('#calib-toggle')?.addEventListener('click', (e) => {
       const turnOn = !calib.enabled;
       const go = (note, hours) => busy(e.currentTarget, async () => {

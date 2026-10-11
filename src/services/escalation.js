@@ -44,6 +44,8 @@ async function escalateUnacknowledged({ now = Date.now() } = {}) {
     kind: 'ESCALATION', level: 'CRITICAL', tag: 'aquacast-escalation', url: '/#alerts',
     title: `Nobody has responded: CRITICAL DO for ${mins} min`,
     body: `The critical alert from ${fmtTime(a.observation_timestamp_utc)} (DO ${doText}) is not acknowledged yet. Someone please check the pond now and acknowledge it in AquaCast.`,
+    fil: { title: `Walang tumutugon: ${mins} minuto nang KRITIKAL ang DO`,
+      body: `Hindi pa na-acknowledge ang kritikal na alerto noong ${fmtTime(a.observation_timestamp_utc)} (DO ${doText}). Pakitingnan agad ang pond at i-acknowledge ito sa AquaCast.` },
   });
   await db.from('dashboard_audit_log').update({ details: { after_minutes: config.escalateAfterMinutes, observation_utc: a.observation_timestamp_utc, ...result } })
     .eq('action', 'ALERT_ESCALATED').eq('target_id', a.risk_id);

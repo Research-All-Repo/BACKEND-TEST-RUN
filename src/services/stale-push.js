@@ -43,6 +43,8 @@ async function checkStaleAndNotify({ now = Date.now() } = {}) {
     kind: 'STALE', level: 'WARNING', tag: 'aquacast-stale', url: '/#sensors',
     title: 'No new readings from the pond',
     body: `Last reading at ${fmtTime(latest.timestamp_utc)} (${ageMin} min ago). Check the Raspberry Pi power and internet. DO alerts cannot work without data.`,
+    fil: { title: 'Walang bagong reading mula sa pond',
+      body: `Huling reading noong ${fmtTime(latest.timestamp_utc)} (${ageMin} minuto na). Tingnan ang kuryente at internet ng Raspberry Pi. Hindi gagana ang DO alerto kung walang datos.` },
   });
   await db.from('dashboard_audit_log').update({ details: { last_reading_utc: latest.timestamp_utc, minutes_without_data: ageMin, ...result } }).eq('audit_id', claim.audit_id);
   return { sent: true, minutes_without_data: ageMin, ...result };
@@ -60,6 +62,7 @@ async function recoverIfNeeded(db, latestIso) {
   const result = await sendAlert({
     kind: 'RECOVERY', level: 'INFO', tag: 'aquacast-stale', url: '/#live',
     title: 'Pond readings are back', body: `New reading received at ${fmtTime(latestIso)}. Monitoring has resumed.`,
+    fil: { title: 'May reading na ulit mula sa pond', body: `May bagong reading noong ${fmtTime(latestIso)}. Tuloy na ulit ang pagbabantay.` },
   });
   return { recovered: true, ...result };
 }
