@@ -1,7 +1,7 @@
 // AquaCast service worker: lets the dashboard be installed on the home screen, opens the
 // app shell when the network is flaky, and shows / handles risk-alert notifications.
 // API calls (/api/*) are NEVER cached: monitoring data always comes live from the server.
-const CACHE = 'aquacast-shell-v12';
+const CACHE = 'aquacast-shell-v13';
 const SHELL = [
   '/', '/index.html', '/manifest.webmanifest',
   '/css/aquacast.css', '/css/aquacast-extra.css',
@@ -68,11 +68,15 @@ self.addEventListener('push', (event) => {
   try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data?.text() }; }
   const critical = d.level === 'CRITICAL';
   event.waitUntil((async () => {
+    // Shown by the phone itself, even when AquaCast is closed or the screen is off:
+    // high-priority push, stays on screen until tapped, re-alerts (sound + vibration) for every new alert.
     await self.registration.showNotification(d.title || 'AquaCast alert', {
       body: d.body || 'Open AquaCast for details.',
-      tag: d.tag || 'aquacast-risk', renotify: true, requireInteraction: critical,
+      tag: d.tag || 'aquacast-risk', renotify: true, requireInteraction: true, silent: false,
+      timestamp: d.sentAt ? Date.parse(d.sentAt) : Date.now(),
       icon: '/img/icons/icon-192.png', badge: '/img/icons/favicon-64.png',
-      vibrate: critical ? [500, 200, 500, 200, 500, 200, 500] : [300, 150, 300],
+      vibrate: critical ? [800, 300, 800, 300, 800, 300, 1200] : [400, 200, 400],
+      actions: [{ action: 'open', title: 'Open AquaCast' }],
       data: { url: d.url || '/#live' },
     });
     try { if (self.navigator.setAppBadge) await self.navigator.setAppBadge(1); } catch { /* unsupported */ }

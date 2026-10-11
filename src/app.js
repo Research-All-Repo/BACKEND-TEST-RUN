@@ -13,6 +13,7 @@ const { requireAuth, requireRole } = require('./middleware/auth');
  */
 function createApp({ mockEdge = null } = {}) {
   const app = express();
+  app.locals.mockEdge = mockEdge; // the 5-minute Supabase job advances the simulator through it
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
 

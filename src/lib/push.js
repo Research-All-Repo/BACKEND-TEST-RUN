@@ -51,7 +51,7 @@ async function sendToAll(payload) {
   await Promise.all(subs.filter((s) => ok.has(s.user_id)).map(async (s) => {
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth_secret } }, body,
-        { TTL: payload.level === 'CRITICAL' ? 1800 : 900, urgency: 'high', topic: payload.test ? 'aquacast-test' : 'aquacast-risk' });
+        { TTL: payload.level === 'CRITICAL' ? 7200 : 3600, urgency: 'high', topic: payload.test ? 'aquacast-test' : 'aquacast-risk' });
       sent += 1;
       await db.from('push_subscriptions').update({ last_success_at: new Date().toISOString(), last_error: null }).eq('subscription_id', s.subscription_id);
     } catch (err) {

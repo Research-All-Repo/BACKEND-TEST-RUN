@@ -2,8 +2,8 @@
 // operator advisory banner, critical takeover, profile and logout dialogs.
 // All data comes from the backend API (see docs/API.md); no Supabase keys in the browser.
 import { get, post, onAuthProblem } from './api.js';
-import { html, raw, ic, esc, icon, openModal, formData, setTimezone, initials, roleLabel, riskLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
-import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush } from './alerts.js';
+import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, riskLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
+import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush, turnOnAlerts, isStandaloneApp } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
 // Installed home-screen app or a phone/tablet: stay signed in by default (persistent cookies,
@@ -209,6 +209,7 @@ function enterApp(profile) {
         </div>
       </div></header>
       <section class="dashboard-content"><div class="dashboard-content-inner">
+        <div id="alerts-prompt"></div>
         <div id="calibration-banner"></div>
         <div id="freshness"></div>
         <div id="advisory"></div>
@@ -228,7 +229,7 @@ function enterApp(profile) {
   root.querySelector('[data-open=profile]').addEventListener('click', openProfile);
   root.querySelector('[data-open=logout]').addEventListener('click', openLogout);
   root.querySelector('[data-open=alerts]').addEventListener('click', openAlertSettings);
-  syncPush(); // registers this device for instant phone alerts if notifications are allowed
+  syncPush().then(renderAlertsPrompt); // registers this device for instant phone alerts if notifications are allowed
   route();
   startPolling();
 }
@@ -332,6 +333,40 @@ function rememberReading(live) {
   try { localStorage.setItem(LAST_KEY, JSON.stringify({ at: o.timestamp_utc, do: r.value, risk: riskLabel(live.risk?.current_risk_state || 'DATA_UNAVAILABLE') })); } catch { /* private mode */ }
 }
 function lastKnown() { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch { return null; } }
+
+// Every user should get Warning / Critical alerts on their phone: remind devices that are not set up.
+window.addEventListener('aq-push-state', (e) => renderAlertsPrompt(e.detail));
+const PROMPT_KEY = 'aq-alerts-prompt-hidden-until';
+function renderAlertsPrompt(state) {
+  const el = document.getElementById('alerts-prompt');
+  if (!el) return;
+  let hiddenUntil = 0; try { hiddenUntil = Number(localStorage.getItem(PROMPT_KEY) || 0); } catch { /* private mode */ }
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const needsInstall = state === 'unsupported' && ios && !isStandaloneApp();
+  const blocked = 'Notification' in window && Notification.permission === 'denied';
+  if (state === 'on' || state === 'server-off' || (state === 'unsupported' && !needsInstall) || Date.now() < hiddenUntil) { el.innerHTML = ''; return; }
+  const text = needsInstall
+    ? 'On iPhone, alerts only work from the Home Screen app: tap Share, then "Add to Home Screen", open AquaCast from there and turn alerts on.'
+    : blocked
+      ? 'Notifications are blocked for AquaCast on this device. Allow them in the browser or phone settings so Warning and Critical alerts reach you even when the app is closed.'
+      : 'Get Warning and Critical alerts on this device even when AquaCast is closed or the screen is off.';
+  el.innerHTML = html`<div class="aq-alerts-prompt" role="region" aria-label="Phone alerts">${ic('bell-ring', 20)}
+    <div><strong>${needsInstall ? 'Install AquaCast to get alerts' : blocked ? 'Alerts are blocked on this device' : 'Turn on alerts for this device'}</strong><p>${text}</p></div>
+    <div class="aq-alerts-prompt-actions">
+      ${needsInstall || blocked ? raw('<button type="button" class="aq-btn" data-prompt="how">How to</button>') : raw('<button type="button" class="aq-btn primary" data-prompt="on">Turn on alerts</button>')}
+      <button type="button" class="aq-alerts-prompt-later" data-prompt="later">Later</button>
+    </div></div>`;
+  el.querySelector('[data-prompt=on]')?.addEventListener('click', async () => {
+    const st = await turnOnAlerts();
+    toast(st === 'on' ? 'Alerts are on for this device.' : st === 'denied' ? 'Notifications were not allowed.' : 'Notifications allowed; instant alerts will connect shortly.', st === 'on' ? 'success' : st === 'denied' ? 'error' : '');
+    renderAlertsPrompt(st);
+  });
+  el.querySelector('[data-prompt=how]')?.addEventListener('click', () => openAlertSettings());
+  el.querySelector('[data-prompt=later]')?.addEventListener('click', () => {
+    try { localStorage.setItem(PROMPT_KEY, String(Date.now() + 3 * 86400e3)); } catch { /* private mode */ }
+    el.innerHTML = '';
+  });
+}
 
 function renderCalibration() {
   const el = document.getElementById('calibration-banner');

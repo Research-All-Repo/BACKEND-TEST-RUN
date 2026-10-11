@@ -57,7 +57,14 @@ async function riskHook(req, res, next) {
 async function staleHook(req, res, next) {
   try {
     if (!hookSecretOk(req)) throw E.forbidden();
-    res.json({ data: await checkStaleAndNotify() });
+    // Simulator on Vercel only moves forward on requests. Running it here every 5 minutes means
+    // simulated readings (and their Warning / Critical phone alerts) keep coming while every app is closed.
+    let simulator = null;
+    const edge = req.app.locals.mockEdge;
+    if (edge?.tick) {
+      try { await edge.tick(); simulator = 'ticked'; } catch (e) { simulator = `error: ${e.message}`; }
+    }
+    res.json({ data: { ...(await checkStaleAndNotify()), simulator } });
   } catch (err) { next(err); }
 }
 

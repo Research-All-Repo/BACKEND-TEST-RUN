@@ -37,7 +37,7 @@ function unlockAudio() {
 export const soundEnabled = () => store.get(SOUND_KEY, true);
 /**
  * WARNING  = an "attention" chime: two soft two-note dings (like a doorbell), ~1.6 s.
- * CRITICAL = an urgent alarm: a rising-falling siren under fast high beeps, ~3 s, louder.
+ * CRITICAL = a calm but clear rising three-note chime (G5-C6-E6), played twice (~2.5 s).
  * `force` plays even when the sound switch is off (used by the test buttons).
  */
 function playTone(level, force = false) {
@@ -62,20 +62,15 @@ function playTone(level, force = false) {
     });
     return true;
   }
-  // CRITICAL: siren sweep (square) + rapid beeps on top
-  const siren = ctx.createOscillator(); const sg = ctx.createGain();
-  siren.type = 'sawtooth';
-  for (let k = 0; k < 6; k += 1) {
-    siren.frequency.setValueAtTime(620, t0 + k * 0.5);
-    siren.frequency.linearRampToValueAtTime(1250, t0 + k * 0.5 + 0.25);
-    siren.frequency.linearRampToValueAtTime(620, t0 + k * 0.5 + 0.5);
-  }
-  sg.gain.setValueAtTime(0.0001, t0);
-  sg.gain.exponentialRampToValueAtTime(0.16, t0 + 0.05);
-  sg.gain.setValueAtTime(0.16, t0 + 2.9);
-  sg.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.05);
-  siren.connect(sg).connect(out); siren.start(t0); siren.stop(t0 + 3.1);
-  for (let k = 0; k < 12; k += 1) note(1760, t0 + k * 0.25, 0.09, { type: 'square', peak: 0.12 });
+  // CRITICAL: a clear but calm rising three-note chime (G5-C6-E6, like a public-address alert),
+  // played twice. Urgent enough to notice, without the harsh siren.
+  [0, 1.45].forEach((rep) => {
+    [[0, 784], [0.28, 1047], [0.56, 1319]].forEach(([dt, f]) => {
+      note(f, t0 + rep + dt, 0.75, { type: 'sine', peak: 0.3 });
+      note(f * 2, t0 + rep + dt, 0.35, { type: 'sine', peak: 0.04 });
+      note(f / 2, t0 + rep + dt, 0.6, { type: 'triangle', peak: 0.05 });
+    });
+  });
   return true;
 }
 
@@ -233,6 +228,17 @@ function b64ToBytes(b64) {
   return Uint8Array.from([...raw0].map((c) => c.charCodeAt(0)));
 }
 /** Subscribe this device (if notifications are allowed) and register it with the server. */
+/** One tap from the "turn on alerts" card: ask permission, then register this phone for instant alerts. */
+export async function turnOnAlerts() {
+  unlockAudio();
+  if (!('Notification' in window)) return 'unsupported';
+  const r = await Notification.requestPermission();
+  if (r !== 'granted') return r;
+  return syncPush();
+}
+export const currentPushState = () => pushState;
+export const isStandaloneApp = () => isStandalone();
+
 export async function syncPush() {
   try {
     if (!pushSupported()) { pushState = 'unsupported'; return pushState; }
@@ -248,6 +254,7 @@ export async function syncPush() {
     await post('/api/push/subscribe', { subscription: sub.toJSON() });
     pushState = 'on';
   } catch { pushState = 'error'; }
+  window.dispatchEvent(new CustomEvent('aq-push-state', { detail: pushState })); // e.g. hides the "turn on alerts" card
   return pushState;
 }
 /** Called before logging out: this device stops receiving alerts for the account. */
@@ -291,12 +298,12 @@ export function openAlertSettings() {
             <button type="button" class="aq-btn aq-test-warning" data-act="test-warning">${ic('play', 14)}Test Warning sound</button>
             <button type="button" class="aq-btn aq-test-critical" data-act="test-critical">${ic('play', 14)}Test Critical sound</button>
           </div>
-          <p>Warning plays a two-note chime. Critical plays an urgent siren and repeats every 30 seconds until someone taps the critical alert.</p></section>
+          <p>Warning plays a soft two-note chime. Critical plays a clear three-note chime and repeats every 30 seconds until someone taps the critical alert.</p></section>
         <section><h4>${ic('moon', 16)}Appearance</h4>
           <div class="aq-zoom-presets aq-theme-choice" role="group" aria-label="Colour theme">${['auto', 'light', 'dark'].map((t) => raw(`<button type="button" data-theme-choice="${t}" class="${(window.aqTheme?.get() || 'auto') === t ? 'active' : ''}" aria-pressed="${(window.aqTheme?.get() || 'auto') === t}">${{ auto: 'Auto', light: 'Light', dark: 'Dark' }[t]}</button>`))}</div>
           <p class="aq-settings-note">Auto follows this device's light / dark setting. Dark is easier on the eyes for night checks.</p></section>
         <section><h4>${ic('smartphone', 16)}Home screen app</h4>${raw(installHtml)}</section>
-        <p class="aq-settings-note">With instant alerts on, the phone shows a notification within seconds even when AquaCast is closed. The full-screen alert and the siren play when AquaCast is open (tap the notification to open it). On iPhone, notifications need the Home Screen app (iOS 16.4 or newer).</p>
+        <p class="aq-settings-note">With instant alerts on, the phone shows a notification within seconds even when AquaCast is closed. The phone plays its own notification sound and the alert stays on the lock screen until tapped; the full-screen alert and the AquaCast chime play when the app is open. On iPhone, notifications need the Home Screen app (iOS 16.4 or newer).</p>
       </div>`,
     onMount: (m, close) => {
       m.querySelector('[data-act=perm]')?.addEventListener('click', async () => {

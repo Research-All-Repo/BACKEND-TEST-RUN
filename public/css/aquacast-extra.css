@@ -671,3 +671,13 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
 }
 .aq-hero-guide-row { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 @media (width > 1100px) { .aq-guide-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .aq-guide-steps li { align-self: stretch; } }
+
+/* ---------- "turn on alerts for this device" card ---------- */
+.aq-alerts-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; margin-bottom: 14px; padding: 14px 16px; border-radius: 16px;
+  background: #f0fdfa; border: 1px solid #99f6e4; color: #134e4a; }
+.aq-alerts-prompt > svg { flex-shrink: 0; color: #0f766e; }
+.aq-alerts-prompt > div:first-of-type { flex: 1 1 260px; min-width: 0; }
+.aq-alerts-prompt strong { display: block; font-size: 15px; color: #0f172a; }
+.aq-alerts-prompt p { margin: 2px 0 0; font-size: 13.5px; line-height: 1.5; color: #115e59; }
+.aq-alerts-prompt-actions { display: flex; align-items: center; gap: 8px; }
+.aq-alerts-prompt-later { border: 0; background: none; color: #475569; font: inherit; font-weight: 700; font-size: 13.5px; padding: 8px 10px; cursor: pointer; }
