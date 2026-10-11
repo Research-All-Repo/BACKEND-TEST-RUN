@@ -174,6 +174,15 @@ async function getStudy(db) {
   return unwrap(await db.from('study_metadata').select('*').order('deployment_start_utc', { ascending: false }).limit(1).maybeSingle());
 }
 
+/** Latest "test alert" broadcast by an admin in the last 5 minutes (dashboard_audit_log), or null. */
+async function getTestAlert(db, now = new Date()) {
+  const since = new Date(now.getTime() - 5 * 60_000).toISOString();
+  const { data, error } = await db.from('dashboard_audit_log').select('audit_id, created_at, details')
+    .eq('action', 'ALERT_TEST_BROADCAST').gte('created_at', since).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (error || !data) return null; // never let the test feature break /api/live
+  return { id: data.audit_id, level: data.details?.level === 'WARNING' ? 'WARNING' : 'CRITICAL', sent_at: data.created_at, sent_by: data.details?.sent_by || 'an administrator' };
+}
+
 async function countActiveAlerts(db, now = new Date()) {
   const since = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
   const { count, error } = await db.from('risk_alerts').select('risk_id', { count: 'exact', head: true })
@@ -185,5 +194,5 @@ async function countActiveAlerts(db, now = new Date()) {
 module.exports = {
   HORIZONS, READINGS, shapeObservation, getLatestObservation, getLatestHealth, getFreshness,
   getForecastsForObservation, getRiskForObservation, getDoTrend, getAeratorSummary, decorateCommand,
-  getStudy, countActiveAlerts,
+  getStudy, countActiveAlerts, getTestAlert,
 };

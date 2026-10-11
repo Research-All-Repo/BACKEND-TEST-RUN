@@ -14,6 +14,9 @@ function describe(a) {
   if (a.event_type === 'MOCK_EDGE_STATE_CHANGED') {
     try { return `Simulated edge device set ${JSON.parse(a.details).offline ? 'OFFLINE' : 'ONLINE'} (test data only).`; } catch { /* fall through */ }
   }
+  if (a.event_type === 'ALERT_TEST_BROADCAST') {
+    try { return `Test ${JSON.parse(a.details).level} alert sent to all signed-in devices (no real reading).`; } catch { /* fall through */ }
+  }
   return a.details || '—';
 }
 

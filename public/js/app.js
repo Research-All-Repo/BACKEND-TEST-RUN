@@ -3,7 +3,7 @@
 // All data comes from the backend API (see docs/API.md); no Supabase keys in the browser.
 import { get, post, onAuthProblem } from './api.js';
 import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
-import { checkRisk, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm } from './alerts.js';
+import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
 const root = document.getElementById('root');
@@ -34,7 +34,7 @@ const PAGE_MODULES = {
 
 const state = {
   profile: null, page: null, cleanup: null, poll: null, live: null, liveError: null,
-  pendingUsers: 0, sidebarOpen: false, dismissedCritical: new Set(),
+  pendingUsers: 0, sidebarOpen: false,
 };
 
 // =====================================================================
@@ -299,27 +299,32 @@ function renderAdvisory() {
 }
 
 /** Full-screen critical dialog. Called by alerts.js when DO enters CRITICAL (and every 30 min while it lasts). */
-function showCriticalTakeover() {
+function showCriticalTakeover(test = null) {
   const r = state.live?.risk;
-  if (!r || r.current_risk_state !== 'CRITICAL') return;
-  const key = `aq-critical-${r.risk_id}`;
+  if (!test && (!r || r.current_risk_state !== 'CRITICAL')) return;
   if (document.querySelector('.critical-takeover-overlay')) return;
-  const doR = state.live.observation?.readings?.do_mg_l;
+  const doR = state.live?.observation?.readings?.do_mg_l;
   const close = openModal({
     overlayClass: 'critical-takeover-overlay', modalClass: 'critical-takeover-dialog', dismissable: false,
-    content: html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
+    content: test
+      ? html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
+      <span class="critical-takeover-eyebrow">TEST ALERT • Critical</span>
+      <h2>This is a test of the Critical alert</h2>
+      <p class="critical-takeover-description">Sent by ${test.sentBy} at ${test.time} to check that this device shows the alert, plays the urgent sound and receives the notification. It is not a real reading.</p>
+      <div class="critical-takeover-reading"><span>Test only</span><div><strong>TEST</strong></div><p>Real Critical alerts look like this and show the measured DO here.</p></div>
+      <button type="button" class="critical-takeover-button primary critical-takeover-acknowledge" data-go="dismiss">Stop the test alarm</button>`
+      : html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
       <span class="critical-takeover-eyebrow">Critical • Immediate operator review</span>
       <h2>Critical low dissolved oxygen</h2>
       <p class="critical-takeover-description">The latest observation is at or below the critical threshold. Verify the reading and pond conditions, then decide on a management response.</p>
-      <div class="critical-takeover-reading"><span>Current DO</span><strong>${doR?.usable ? fmtNum(doR.value) : '--'} mg/L</strong><small>Observed ${fmtTime(state.live.observation?.timestamp_utc)} • ${ago(state.live.observation?.timestamp_utc)}</small></div>
+      <div class="critical-takeover-reading"><span>Current DO</span><div><strong>${doR?.usable ? fmtNum(doR.value) : '--'}</strong><small>mg/L</small></div><p>Observed ${fmtTime(state.live.observation?.timestamp_utc)} • ${ago(state.live.observation?.timestamp_utc)}</p></div>
       <div class="critical-takeover-actions">
         <button type="button" class="critical-takeover-button primary" data-go="aeration">${ic('fan', 17)}Open Aeration Control</button>
         <button type="button" class="critical-takeover-button secondary" data-go="forecast">${ic('trending-down', 17)}View Forecast &amp; Risk</button>
       </div>
-      <button type="button" class="critical-takeover-acknowledge" data-go="dismiss">I have seen this alert</button>
+      <button type="button" class="critical-takeover-button secondary critical-takeover-acknowledge" data-go="dismiss">I have seen this alert</button>
       <p class="critical-takeover-note">Acknowledge the alert formally on the Alerts page so it is recorded with your name.</p>`,
     onMount: (dlg, done) => dlg.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => {
-      try { sessionStorage.setItem(key, '1'); } catch { state.dismissedCritical.add(key); }
       stopCriticalAlarm();
       done();
       if (b.dataset.go === 'aeration') navigate('live', { focus: 'aeration' });
@@ -340,6 +345,7 @@ async function refreshLive() {
     if (ab) { ab.textContent = r.data.active_alerts; ab.classList.toggle('aq-hidden', !r.data.active_alerts); }
     renderAdvisory();
     checkRisk(state.live, { navigate, showCritical: showCriticalTakeover });
+    checkTestAlert(state.live, { navigate, showCritical: showCriticalTakeover });
   } catch (err) {
     state.liveError = err;
     renderFreshness(state.live?.freshness, err);

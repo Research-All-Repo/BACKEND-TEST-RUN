@@ -2,6 +2,8 @@
 const express = require('express');
 const { unwrap, E, fromSupabase } = require('../lib/errors');
 const { parseRange, parsePage, assertUuid, sanitizeText, ruleReference } = require('../lib/helpers');
+const { requireRole } = require('../middleware/auth');
+const { getAdminClient } = require('../lib/supabase');
 
 const router = express.Router();
 
@@ -29,6 +31,29 @@ router.get('/', async (req, res, next) => {
     const highest = alerts.reduce((m, a) => Math.max(m, a.severity_rank), 0);
     res.json({ data: alerts, meta: { ...range, status, page, page_size: pageSize, total: count ?? null,
       highest_severity: ['NONE', 'WATCH', 'WARNING', 'CRITICAL'][highest] } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/alerts/test-broadcast (ADMIN) { level: "WARNING" | "CRITICAL" }
+ * Every signed-in dashboard (phones included) picks this up on its next /api/live
+ * refresh (within ~1 minute) and plays the alert sound / shows the notification,
+ * clearly marked TEST. No observation or risk data is created or changed.
+ */
+router.post('/test-broadcast', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const level = String(req.body?.level || 'CRITICAL').toUpperCase();
+    if (!['WARNING', 'CRITICAL'].includes(level)) throw E.validation('level must be WARNING or CRITICAL.');
+    const sentBy = req.auth.profile.full_name || req.auth.user.email;
+    const { data, error } = await getAdminClient().from('dashboard_audit_log').insert({
+      actor_user_id: req.auth.user.id, action: 'ALERT_TEST_BROADCAST', target_table: 'dashboard', target_id: 'test-alert',
+      details: { level, sent_by: sentBy, note: 'Test of the alert sound and notification on all signed-in devices' },
+    }).select('audit_id, created_at').single();
+    if (error) throw fromSupabase(error);
+    res.status(201).json({ data: { id: data.audit_id, level, sent_at: data.created_at },
+      meta: { message: `Test ${level} alert sent. Open dashboards receive it within about a minute.` } });
   } catch (err) {
     next(err);
   }

@@ -15,15 +15,15 @@ const router = express.Router();
 router.get('/', async (req, res, next) => {
   try {
     const { db } = req.auth;
-    const [obs, health, aerator, activeAlerts, study] = await Promise.all([
-      S.getLatestObservation(db), S.getLatestHealth(db), S.getAeratorSummary(db), S.countActiveAlerts(db), S.getStudy(db),
+    const [obs, health, aerator, activeAlerts, study, testAlert] = await Promise.all([
+      S.getLatestObservation(db), S.getLatestHealth(db), S.getAeratorSummary(db), S.countActiveAlerts(db), S.getStudy(db), S.getTestAlert(db),
     ]);
     const freshness = classifyFreshness(obs?.timestamp_utc || null, health);
     if (!obs) {
       return res.json({
         data: { observation: null, risk: null, forecasts: S.HORIZONS.map((h) => ({ horizon_minutes: h, forecast_status: 'NOT_GENERATED', predicted_do_mg_l: null })),
           trend: null, system_health: health ? { ...health, matches_latest_observation: false } : null, aerator, active_alerts: activeAlerts,
-          rule_reference: ruleReference(), station: stationInfo(study) },
+          rule_reference: ruleReference(), station: stationInfo(study), test_alert: testAlert },
         meta: { freshness, generated_at: new Date().toISOString() },
       });
     }
@@ -50,6 +50,7 @@ router.get('/', async (req, res, next) => {
         active_alerts: activeAlerts,
         rule_reference: ruleReference(risk?.rule_version),
         station: stationInfo(study),
+        test_alert: testAlert, // admin-sent test of the alert sound/notification path; not a real reading
       },
       meta: { freshness, generated_at: new Date().toISOString() },
     });

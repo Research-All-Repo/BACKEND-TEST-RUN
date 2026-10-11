@@ -93,6 +93,16 @@ export default async function settings(root, ctx) {
         : raw(`<div class="aq-state"><strong>Aerator settings not initialised</strong><p>${esc(a?.message || '')}</p></div>`)}
       </section>
 
+      <section class="dashboard-panel settings2-storage-panel">
+        <div class="settings2-section-header">${ic('bell-ring', 18)}<div><span class="settings2-eyebrow">ALERT TEST</span><h3>Test Alerts on All Devices</h3>
+          <p>Sends a test alert that every signed-in dashboard (computers and installed phone apps) shows within about a minute: the alert screen, the sound and the phone notification. It is marked TEST and creates no readings.</p></div></div>
+        <div class="aq-test-row">
+          <button type="button" class="aq-btn aq-test-warning" data-test-alert="WARNING">${ic('bell-ring', 15)}Send test Warning</button>
+          <button type="button" class="aq-btn aq-test-critical" data-test-alert="CRITICAL">${ic('triangle-alert', 15)}Send test Critical</button>
+        </div>
+        <div class="settings2-storage-note">${ic('info', 15)}<p><strong>Before testing:</strong> on each phone open AquaCast, tap the bell, enable notifications and tap a test sound once. Keep the app open (on screen or just switched away); a phone that is locked for a long time may only show the alert when it is opened again.</p></div>
+      </section>
+
       ${dev ? raw(html`<section class="dashboard-panel settings2-tools-panel">
         <div class="settings2-section-header">${ic('flask-conical', 18)}<div><span class="settings2-eyebrow danger">TEST TOOLS</span><h3>Mock Edge Simulator</h3>
           <p>Only available while MOCK_EDGE_ENABLED=true. Use it to demonstrate live, delayed and offline states. Turn it off for real deployments.</p></div><span class="settings2-status-badge prototype">TEST DATA</span></div>
@@ -141,6 +151,13 @@ export default async function settings(root, ctx) {
     }
 
     page.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => confirmMode(b.dataset.mode)));
+    page.querySelectorAll('[data-test-alert]').forEach((b) => b.addEventListener('click', (e) => busy(e.currentTarget, async () => {
+      try {
+        const r = await post('/api/alerts/test-broadcast', { level: b.dataset.testAlert });
+        toast(r.meta.message, 'success');
+        ctx.refreshLive();
+      } catch (err) { toast(err.message, 'error'); }
+    })));
     page.querySelector('#dev-offline')?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
       try { await post('/api/dev/mock-edge', { offline: !dev.offline }); toast(dev.offline ? 'Simulated edge is back online.' : 'Simulated edge is now offline.', 'success'); await load(); ctx.refreshLive(); } catch (err) { toast(err.message, 'error'); }
     }));

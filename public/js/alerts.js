@@ -80,13 +80,13 @@ function playTone(level, force = false) {
 
 // While the Critical dialog is open the alarm repeats every 20 s (max 10 min) until someone taps it.
 let alarmTimer = null;
-function startCriticalAlarm() {
+function startCriticalAlarm(force = false) {
   stopCriticalAlarm();
   let n = 0;
   alarmTimer = setInterval(() => {
     n += 1;
     if (n > 30 || !document.querySelector('.critical-takeover-overlay')) { stopCriticalAlarm(); return; }
-    playTone(2);
+    playTone(2, force);
     try { navigator.vibrate?.([400, 150, 400, 150, 400]); } catch { /* unsupported */ }
   }, 20_000);
 }
@@ -115,15 +115,18 @@ function setIndicators(level) {
 export function clearIndicators() { setIndicators(0); document.querySelector('.aq-risk-alert')?.remove(); }
 
 // ---------------- in-dashboard warning banner ----------------
-function showWarningBanner({ doText, timeText, navigate }) {
+function showWarningBanner({ doText, timeText, navigate, test = null }) {
   document.querySelector('.aq-risk-alert')?.remove();
   const el = document.createElement('div');
   el.className = 'aq-risk-alert warning';
   el.setAttribute('role', 'alert');
   el.innerHTML = html`<div class="aq-risk-alert-icon">${ic('triangle-alert', 22)}</div>
-    <div class="aq-risk-alert-copy"><span>WARNING • New reading ${timeText}</span>
+    <div class="aq-risk-alert-copy">${test
+    ? raw(html`<span>TEST ALERT • Warning • sent by ${test.sentBy} at ${test.time}</span>
+      <strong>This is a test of the Warning alert.</strong><p>Not a real reading. A real Warning shows the measured DO here.</p>`)
+    : raw(html`<span>WARNING • New reading ${timeText}</span>
       <strong>Dissolved oxygen is ${doText}, below the normal boundary.</strong>
-      <p>Check the pond and the forecast. Consider manual aeration if DO keeps falling.</p></div>
+      <p>Check the pond and the forecast. Consider manual aeration if DO keeps falling.</p>`)}</div>
     <div class="aq-risk-alert-actions">
       <button type="button" class="primary" data-a="aeration">${ic('fan', 15)}Aeration control</button>
       <button type="button" data-a="forecast">View forecast</button>
@@ -177,6 +180,26 @@ export function checkRisk(live, { navigate, showCritical }) {
     systemNotify(level === 2 ? 'CRITICAL: low dissolved oxygen' : 'Warning: dissolved oxygen dropping',
       `DO ${doText} at ${timeText}. ${level === 2 ? 'Immediate operator review needed.' : 'Below the normal boundary.'}`, level);
   }
+}
+
+// ---------------- admin "test alert" broadcast ----------------
+const SEEN_TESTS = 'aq-test-alerts-seen';
+/** Plays a test alert once per broadcast (sent from System Settings) on every signed-in device. */
+export function checkTestAlert(live, { navigate, showCritical }) {
+  const t = live?.test_alert;
+  if (!t?.id) return;
+  const seen = store.get(SEEN_TESTS, []);
+  if (seen.includes(t.id)) return;
+  store.set(SEEN_TESTS, [...seen.slice(-20), t.id]);
+  const level = t.level === 'WARNING' ? 1 : 2;
+  const test = { sentBy: t.sent_by, time: fmtTime(t.sent_at) };
+  if (level === 2) showCritical(test);
+  else showWarningBanner({ navigate, test });
+  playTone(level, true);
+  if (level === 2) startCriticalAlarm(true);
+  try { navigator.vibrate?.(level === 2 ? [400, 150, 400, 150, 400] : [300, 150, 300]); } catch { /* unsupported */ }
+  systemNotify(level === 2 ? 'TEST: Critical DO alert' : 'TEST: DO Warning alert',
+    `Test sent by ${test.sentBy} at ${test.time}. Not a real reading.`, level);
 }
 
 // ---------------- install as an app ----------------

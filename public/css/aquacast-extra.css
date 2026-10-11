@@ -180,7 +180,7 @@
 @media (width <= 640px) { .aq-header-alerts { padding: 7px; } .aq-header-alerts span { display: none; } }
 
 /* New WARNING reading: floating alert at the top of the screen */
-.aq-risk-alert { position: fixed; z-index: 70; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+.aq-risk-alert { position: fixed; z-index: 1350; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
   width: min(720px, calc(100vw - 24px)); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: start;
   background: #fff7ed; border: 1px solid #fdba74; border-left: 6px solid #f97316; border-radius: 16px; padding: 14px 16px;
   box-shadow: 0 18px 40px #7c2d1240; animation: aq-alert-in .25s ease-out; }
@@ -233,3 +233,4 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .aq-test-row .aq-test-warning { border-color: #fdba74; color: #9a3412; background: #fff7ed; }
 .aq-test-row .aq-test-critical { border-color: #fda4af; color: #9f1239; background: #fff1f2; }
 .aq-alert-settings .user2-modal-header p { font-size: 12px; line-height: 1.5; color: #64748b; }
+.settings2-storage-panel .aq-test-row { margin-top: 14px; }
