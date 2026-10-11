@@ -234,3 +234,19 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .aq-test-row .aq-test-critical { border-color: #fda4af; color: #9f1239; background: #fff1f2; }
 .aq-alert-settings .user2-modal-header p { font-size: 12px; line-height: 1.5; color: #64748b; }
 .settings2-storage-panel .aq-test-row { margin-top: 14px; }
+
+/* Critical dialog: aerator section */
+.aq-crit-aerator { margin-top: 14px; border-radius: 14px; padding: 12px 14px; display: grid; gap: 8px; justify-items: center; text-align: center; font-size: 13px; line-height: 1.45; }
+.aq-crit-aerator p { margin: 0; color: inherit; }
+.aq-crit-aerator > svg { margin: 0 auto; }
+.aq-crit-aerator.action { background: #f0fdfa; border: 1px solid #99f6e4; color: #134e4a; }
+.aq-crit-aerator.info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; }
+.aq-crit-aerator.wait { background: #f0f9ff; border: 1px solid #bae6fd; color: #075985; }
+.aq-crit-aerator.ok { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+.aq-crit-aerator.bad { background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; }
+.aq-crit-aerator.muted { background: #f8fafc; border: 1px solid #e2e8f0; color: #475569; }
+.aq-crit-aer-btn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 16px; border: 0; border-radius: 13px;
+  background: linear-gradient(135deg, #0d9488, #0284c7); color: #fff; font: inherit; font-size: 15px; font-weight: 900; cursor: pointer; box-shadow: 0 8px 20px #0d948840; }
+.aq-crit-aer-btn:disabled { opacity: .6; cursor: wait; }
+.aq-crit-aer-note { font-size: 11px; opacity: .85; }
+.critical-takeover-dialog { max-height: calc(100dvh - 24px); overflow-y: auto; }

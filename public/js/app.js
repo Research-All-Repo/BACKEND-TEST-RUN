@@ -6,6 +6,11 @@ import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, init
 import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
+// Installed home-screen app or a phone/tablet: stay signed in by default (persistent cookies,
+// renewed on every use). Shared desktop computers keep the opt-in "Remember me".
+const KEEP_SIGNED_IN = (() => {
+  try { return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || window.matchMedia('(pointer: coarse)').matches; } catch { return false; }
+})();
 const root = document.getElementById('root');
 
 const NAV = [
@@ -66,7 +71,7 @@ function showLogin(msg) {
       <div class="auth2-form-group"><label for="login-password">Password</label>
         <div class="auth2-input">${ic('lock', 17)}<input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
           <button type="button" class="auth2-password-toggle" aria-label="Show password">${ic('eye', 17)}</button></div></div>
-      <div class="auth2-options"><label class="auth2-remember"><input type="checkbox" name="remember"><span>Remember me</span></label>
+      <div class="auth2-options"><label class="auth2-remember"><input type="checkbox" name="remember" ${KEEP_SIGNED_IN ? 'checked' : ''}><span>${KEEP_SIGNED_IN ? 'Keep me signed in' : 'Remember me'}</span></label>
         <button type="button" class="auth2-text-button" data-auth="forgot">Forgot Password?</button></div>
       <button type="submit" class="auth2-primary-button">${ic('log-in', 17)}Sign In</button>
     </form>
@@ -298,40 +303,119 @@ function renderAdvisory() {
   el.querySelector('button').addEventListener('click', () => navigate('live', { focus: 'aeration' }));
 }
 
-/** Full-screen critical dialog. Called by alerts.js when DO enters CRITICAL (and every 30 min while it lasts). */
+/** Full-screen critical dialog. Called by alerts.js when DO enters CRITICAL (and every 30 min while it lasts),
+ *  or with `test` for an admin test broadcast. Touching the dialog stops the repeating alarm. */
 function showCriticalTakeover(test = null) {
   const r = state.live?.risk;
   if (!test && (!r || r.current_risk_state !== 'CRITICAL')) return;
   if (document.querySelector('.critical-takeover-overlay')) return;
   const doR = state.live?.observation?.readings?.do_mg_l;
-  const close = openModal({
-    overlayClass: 'critical-takeover-overlay', modalClass: 'critical-takeover-dialog', dismissable: false,
-    content: test
-      ? html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
+  const head = test
+    ? html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
       <span class="critical-takeover-eyebrow">TEST ALERT • Critical</span>
       <h2>This is a test of the Critical alert</h2>
-      <p class="critical-takeover-description">Sent by ${test.sentBy} at ${test.time} to check that this device shows the alert, plays the urgent sound and receives the notification. It is not a real reading.</p>
-      <div class="critical-takeover-reading"><span>Test only</span><div><strong>TEST</strong></div><p>Real Critical alerts look like this and show the measured DO here.</p></div>
-      <button type="button" class="critical-takeover-button primary critical-takeover-acknowledge" data-go="dismiss">Stop the test alarm</button>`
-      : html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
+      <p class="critical-takeover-description">Sent by ${test.sentBy} at ${test.time} to check this device's alert screen, urgent sound and notification. It is not a real reading.</p>
+      <div class="critical-takeover-reading"><span>Test only</span><div><strong>TEST</strong></div><p>Real Critical alerts show the measured DO here.</p></div>`
+    : html`<div class="critical-takeover-icon">${ic('triangle-alert', 30)}</div>
       <span class="critical-takeover-eyebrow">Critical • Immediate operator review</span>
       <h2>Critical low dissolved oxygen</h2>
       <p class="critical-takeover-description">The latest observation is at or below the critical threshold. Verify the reading and pond conditions, then decide on a management response.</p>
-      <div class="critical-takeover-reading"><span>Current DO</span><div><strong>${doR?.usable ? fmtNum(doR.value) : '--'}</strong><small>mg/L</small></div><p>Observed ${fmtTime(state.live.observation?.timestamp_utc)} • ${ago(state.live.observation?.timestamp_utc)}</p></div>
+      <div class="critical-takeover-reading"><span>Current DO</span><div><strong>${doR?.usable ? fmtNum(doR.value) : '--'}</strong><small>mg/L</small></div><p>Observed ${fmtTime(state.live.observation?.timestamp_utc)} • ${ago(state.live.observation?.timestamp_utc)}</p></div>`;
+  openModal({
+    overlayClass: 'critical-takeover-overlay', modalClass: 'critical-takeover-dialog', dismissable: false,
+    content: html`${raw(head)}
+      <div class="aq-crit-aerator" id="crit-aerator"></div>
       <div class="critical-takeover-actions">
-        <button type="button" class="critical-takeover-button primary" data-go="aeration">${ic('fan', 17)}Open Aeration Control</button>
-        <button type="button" class="critical-takeover-button secondary" data-go="forecast">${ic('trending-down', 17)}View Forecast &amp; Risk</button>
+        <button type="button" class="critical-takeover-button secondary" data-go="aeration">${ic('fan', 17)}Aeration panel</button>
+        <button type="button" class="critical-takeover-button secondary" data-go="forecast">${ic('trending-down', 17)}Forecast &amp; Risk</button>
       </div>
-      <button type="button" class="critical-takeover-button secondary critical-takeover-acknowledge" data-go="dismiss">I have seen this alert</button>
-      <p class="critical-takeover-note">Acknowledge the alert formally on the Alerts page so it is recorded with your name.</p>`,
-    onMount: (dlg, done) => dlg.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => {
-      stopCriticalAlarm();
-      done();
-      if (b.dataset.go === 'aeration') navigate('live', { focus: 'aeration' });
-      if (b.dataset.go === 'forecast') navigate('forecast');
-    })),
+      <button type="button" class="critical-takeover-button secondary critical-takeover-acknowledge" data-go="dismiss">${test ? 'Stop the test alarm' : 'I have seen this alert'}</button>
+      ${test ? '' : raw('<p class="critical-takeover-note">Acknowledge the alert formally on the Alerts page so it is recorded with your name.</p>')}`,
+    onMount: (dlg, done) => {
+      // any touch on the dialog counts as "someone is responding": stop the repeating alarm
+      dlg.addEventListener('pointerdown', stopCriticalAlarm);
+      dlg.addEventListener('keydown', stopCriticalAlarm);
+      renderCriticalAerator(dlg.querySelector('#crit-aerator'), !!test);
+      dlg.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => {
+        stopCriticalAlarm();
+        done();
+        if (b.dataset.go === 'aeration') navigate('live', { focus: 'aeration' });
+        if (b.dataset.go === 'forecast') navigate('forecast');
+      }));
+    },
   });
-  return close;
+}
+
+/**
+ * Aerator section of the critical dialog. MANUAL mode: "Turn ON aerator" sends an ON request.
+ * AUTOMATIC mode: the controller switches the aerator itself; if it still reports OFF, an
+ * Administrator can switch to MANUAL and request ON in one tap. The dashboard only REQUESTS;
+ * the Raspberry Pi applies it, and its acknowledgement is shown here.
+ */
+function renderCriticalAerator(box, test) {
+  if (!box) return;
+  const a = state.live?.aerator;
+  const isAdmin = state.profile?.role === 'ADMIN';
+  const set = (cls, inner) => { box.className = `aq-crit-aerator ${cls}`; box.innerHTML = inner; };
+  if (!a?.initialized) { set('muted', html`${ic('power', 16)}<p>The aerator controller has not reported in yet, so it cannot be switched from here.</p>`); return; }
+  const out = a.controller?.output_state;
+  const reported = a.controller?.output_reported_at_utc ? ` (reported ${ago(a.controller.output_reported_at_utc).toLowerCase()})` : '';
+  const auto = a.mode?.applied_mode === 'AUTOMATIC';
+  const modePending = !a.mode?.acknowledged;
+  if (out === 'ON' && !test) { set('ok', html`${ic('circle-check', 16)}<p><strong>Aerator is ON</strong> according to the controller${reported}. Keep checking DO.</p>`); return; }
+  if (a.pending_command && a.pending_command.effective_status === 'PENDING' && !test) {
+    set('wait', html`${ic('loader-circle', 16, 'aq-spin')}<p>An ${a.pending_command.requested_state} request is waiting for the controller.</p>`);
+    watchCommand(box, a.pending_command.command_id); return;
+  }
+  if (auto && !modePending) {
+    set('info', html`<p><strong>Automatic mode:</strong> the controller switches the aerator on by itself at Warning/Critical. It reports the aerator ${out || 'UNKNOWN'}${reported}.</p>
+      ${isAdmin ? raw(html`<button type="button" class="aq-crit-aer-btn" data-aer="manual-on">${ic('power', 16)}${test ? '(Test) ' : ''}Switch to manual &amp; turn ON</button>`)
+    : raw('<p class="aq-crit-aer-note">Only an Administrator can switch to manual mode.</p>')}`);
+  } else if (a.can_request_manual_command || test) {
+    set('action', html`<button type="button" class="aq-crit-aer-btn" data-aer="on">${ic('power', 16)}${test ? '(Test) ' : ''}Turn ON aerator</button>
+      <p class="aq-crit-aer-note">Sends an ON request to the Raspberry Pi controller. Controller now reports: ${out || 'UNKNOWN'}.</p>`);
+  } else {
+    set('muted', html`${ic('info', 16)}<p>${a.manual_command_blocked_reason || a.mode?.status_text || 'Manual control is not available right now.'}</p>`);
+  }
+  box.querySelector('[data-aer]')?.addEventListener('click', (e) => {
+    stopCriticalAlarm();
+    if (test) { set('info', html`<p><strong>Test only:</strong> no command was sent. In a real Critical alert this button sends an ON request to the controller.</p>`); return; }
+    const btn = e.currentTarget;
+    busy(btn, async () => {
+      try {
+        if (btn.dataset.aer === 'manual-on') {
+          set('wait', html`${ic('loader-circle', 16, 'aq-spin')}<p>Requesting MANUAL mode. Waiting for the controller to acknowledge…</p>`);
+          await post('/api/aerator/mode', { mode: 'MANUAL' });
+          const ok = await waitFor(async () => (await get('/api/aerator')).data.can_request_manual_command, 120_000);
+          if (!ok) { set('bad', html`${ic('triangle-alert', 16)}<p>The controller did not acknowledge MANUAL mode in time. Use the aeration panel to try again.</p>`); return; }
+        }
+        const r = await post('/api/aerator/commands', { requested_state: 'ON' }, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
+        set('wait', html`${ic('loader-circle', 16, 'aq-spin')}<p>ON request sent. Waiting for the controller to apply it…</p>`);
+        watchCommand(box, r.data.command_id);
+      } catch (err) { set('bad', html`${ic('triangle-alert', 16)}<p>${err.message}</p>`); }
+    });
+  });
+}
+async function waitFor(check, ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try { if (await check()) return true; } catch { /* keep trying */ }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return false;
+}
+async function watchCommand(box, id) {
+  const done = await waitFor(async () => {
+    if (!box.isConnected) return true;
+    const c = (await get(`/api/aerator/commands/${id}`)).data;
+    if (c.effective_status === 'PENDING') return false;
+    const ok = c.effective_status === 'APPLIED';
+    box.className = `aq-crit-aerator ${ok ? 'ok' : 'bad'}`;
+    box.innerHTML = html`${ic(ok ? 'circle-check' : 'triangle-alert', 16)}<p><strong>${ok ? 'Controller applied ON.' : `Request ${c.effective_status.replace(/_/g, ' ').toLowerCase()}.`}</strong> ${c.status_text}${ok ? ' This is the controller\'s acknowledgement, not proof the motor is running.' : ''}</p>`;
+    refreshLive();
+    return true;
+  }, 180_000);
+  if (!done && box.isConnected) { box.className = 'aq-crit-aerator bad'; box.innerHTML = html`${ic('triangle-alert', 16)}<p>No answer from the controller yet. Check the aeration panel.</p>`; }
 }
 
 async function refreshLive() {

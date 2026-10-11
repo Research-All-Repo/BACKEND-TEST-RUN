@@ -7,8 +7,8 @@
 //   - shows a phone/desktop notification when the dashboard is in the background
 //     (needs permission; on iPhone only for the app added to the Home Screen, iOS 16.4+),
 //   - keeps a badge on the app icon and a marker in the tab title until DO recovers.
-// CRITICAL repeats a reminder every 30 minutes while it lasts, and its alarm sound repeats every
-// 20 s while the critical dialog is open. Nothing is sent when the app is closed.
+// CRITICAL repeats a reminder every 30 minutes while it lasts, and its alarm repeats every 30 s
+// until someone touches the critical dialog. Nothing is sent when the app is closed.
 import { html, raw, ic, fmtNum, fmtTime, openModal, toast } from './ui.js';
 
 const KEY = 'aq-alert-state';
@@ -78,17 +78,20 @@ function playTone(level, force = false) {
   return true;
 }
 
-// While the Critical dialog is open the alarm repeats every 20 s (max 10 min) until someone taps it.
+// While the Critical dialog is open and nobody has touched it, the alarm (sound, vibration and,
+// in the background, the notification) repeats every 30 s for up to 1 hour.
 let alarmTimer = null;
-function startCriticalAlarm(force = false) {
+const ALARM_EVERY_MS = 30_000;
+function startCriticalAlarm(force = false, title = 'CRITICAL: low dissolved oxygen', body = 'Open AquaCast now.') {
   stopCriticalAlarm();
   let n = 0;
   alarmTimer = setInterval(() => {
     n += 1;
-    if (n > 30 || !document.querySelector('.critical-takeover-overlay')) { stopCriticalAlarm(); return; }
+    if (n > 120 || !document.querySelector('.critical-takeover-overlay')) { stopCriticalAlarm(); return; }
     playTone(2, force);
     try { navigator.vibrate?.([400, 150, 400, 150, 400]); } catch { /* unsupported */ }
-  }, 20_000);
+    if (document.visibilityState !== 'visible') systemNotify(title, `${body} (reminder ${n})`, 2);
+  }, ALARM_EVERY_MS);
 }
 export function stopCriticalAlarm() { if (alarmTimer) clearInterval(alarmTimer); alarmTimer = null; }
 
@@ -174,7 +177,7 @@ export function checkRisk(live, { navigate, showCritical }) {
   if (!fresh) return; // old data: show it, but do not sound an alarm
 
   playTone(level);
-  if (level === 2) startCriticalAlarm();
+  if (level === 2) startCriticalAlarm(false, 'CRITICAL: low dissolved oxygen', `DO ${doText} at ${timeText}. Immediate operator review needed.`);
   try { navigator.vibrate?.(level === 2 ? [400, 150, 400, 150, 400] : [300, 150, 300]); } catch { /* unsupported */ }
   if (document.visibilityState !== 'visible') {
     systemNotify(level === 2 ? 'CRITICAL: low dissolved oxygen' : 'Warning: dissolved oxygen dropping',
@@ -196,7 +199,7 @@ export function checkTestAlert(live, { navigate, showCritical }) {
   if (level === 2) showCritical(test);
   else showWarningBanner({ navigate, test });
   playTone(level, true);
-  if (level === 2) startCriticalAlarm(true);
+  if (level === 2) startCriticalAlarm(true, 'TEST: Critical DO alert', `Test sent by ${test.sentBy} at ${test.time}.`);
   try { navigator.vibrate?.(level === 2 ? [400, 150, 400, 150, 400] : [300, 150, 300]); } catch { /* unsupported */ }
   systemNotify(level === 2 ? 'TEST: Critical DO alert' : 'TEST: DO Warning alert',
     `Test sent by ${test.sentBy} at ${test.time}. Not a real reading.`, level);
@@ -244,7 +247,7 @@ export function openAlertSettings() {
             <button type="button" class="aq-btn aq-test-warning" data-act="test-warning">${ic('play', 14)}Test Warning sound</button>
             <button type="button" class="aq-btn aq-test-critical" data-act="test-critical">${ic('play', 14)}Test Critical sound</button>
           </div>
-          <p>Warning plays a two-note chime. Critical plays an urgent siren and repeats every 20 seconds until someone taps the critical alert.</p></section>
+          <p>Warning plays a two-note chime. Critical plays an urgent siren and repeats every 30 seconds until someone taps the critical alert.</p></section>
         <section><h4>${ic('smartphone', 16)}Home screen app</h4>${raw(installHtml)}</section>
         <p class="aq-settings-note">Alerts work while AquaCast is open (on screen or in the background). If the app is fully closed or the phone is asleep for a long time, the phone may pause it; you will see the alert as soon as you open it again.</p>
       </div>`,
