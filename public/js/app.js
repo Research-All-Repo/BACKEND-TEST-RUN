@@ -380,7 +380,7 @@ function renderCalibration() {
   if (!el) return;
   const c = state.live?.calibration;
   el.innerHTML = c?.enabled ? html`<div class="aq-calib-banner" role="status">${ic('wrench', 18)}<div><strong>Calibration mode: readings may be inaccurate</strong>
-    The dissolved oxygen probe is being calibrated${c.by ? ` (turned on by ${c.by}${c.since ? ` at ${fmtTime(c.since)}` : ''})` : ''}. Risk alerts and phone notifications are paused until an Administrator turns this off in System Settings.${c.note ? raw(html`<br><em>Note: ${c.note}</em>`) : ''}</div></div>` : '';
+    The dissolved oxygen probe is being calibrated${c.by ? ` (turned on by ${c.by}${c.since ? ` at ${fmtTime(c.since)}` : ''})` : ''}. Risk alerts and phone notifications are paused${c.until ? ` until ${fmtTime(c.until)}, when they switch back on automatically` : ''} (an Administrator can end it sooner in System Settings).${c.note ? raw(html`<br><em>Note: ${c.note}</em>`) : ''}</div></div>` : '';
 }
 
 function renderFreshness(fresh, err) {

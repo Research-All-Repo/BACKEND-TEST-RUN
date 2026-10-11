@@ -723,3 +723,31 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
 .aq-fresh-refresh:active { transform: scale(0.97); }
 @media (width <= 520px) { .aq-fresh-refresh span { display: none; } .aq-fresh-refresh { padding: 7px; } }
 @media (prefers-reduced-motion: reduce) { .aq-header-refresh.spinning svg, .aq-fresh-refresh.spinning svg { animation-duration: 2s; } }
+
+/* ---------- diagnostics additions ---------- */
+.aq-diag-sub { margin: 16px 0 8px; font-size: 13px; font-weight: 800; color: #0f172a; letter-spacing: .01em; }
+.aq-diag-table td em { font-style: normal; color: #64748b; font-size: 12px; }
+.aq-diag-alerts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.aq-diag-alerts li { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border: 1px solid #eef2f6; border-radius: 12px; background: #fff; }
+.aq-diag-alerts strong { font-size: 13px; color: #0f172a; }
+.aq-diag-alerts p { margin: 2px 0 0; font-size: 12.5px; color: #475569; }
+.aq-diag-kind { flex-shrink: 0; min-width: 74px; text-align: center; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; background: #e2e8f0; color: #334155; }
+.aq-diag-kind.critical { background: #ffe4e6; color: #9f1239; }
+.aq-diag-kind.warning { background: #fef3c7; color: #92400e; }
+.aq-diag-kind.info { background: #e0f2fe; color: #075985; }
+.aq-diag-more { margin-top: 16px; }
+.aq-diag-more > summary { cursor: pointer; font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 8px; }
+.aq-hero-quality { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 4px; padding: 10px 12px; border-radius: 12px; background: #fffbeb; border: 1px solid #fcd34d; color: #78350f; }
+.aq-hero-quality svg { flex-shrink: 0; margin-top: 2px; }
+.aq-hero-quality strong { display: block; font-size: 13.5px; }
+.aq-hero-quality p { margin: 3px 0 0; font-size: 13px; line-height: 1.5; }
+.aq-hero-quality small { display: block; margin-top: 4px; font-size: 11.5px; opacity: .8; }
+/* ---------- early-warning performance (Model Evaluation) ---------- */
+.aq-ew-grid { margin-bottom: 6px; }
+.aq-ew-sub { margin: 18px 0 8px; font-size: 13.5px; font-weight: 800; color: #0f172a; }
+.aq-ew-row { display: grid; gap: 6px; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; }
+.aq-ew-row p { margin: 0; font-size: 13px; line-height: 1.55; color: #334155; }
+.aq-ew-defs { margin-top: 12px; font-size: 12.5px; color: #475569; }
+.aq-ew-defs summary { cursor: pointer; font-weight: 750; color: #0f766e; }
+.aq-ew-defs ul { margin: 8px 0; padding-left: 18px; display: grid; gap: 4px; }
+.model2-status-badge.bad { background: #ffe4e6; color: #9f1239; }

@@ -66,6 +66,13 @@ export default async function evaluation(root, ctx) {
       </div>
     </section>
 
+    <section class="dashboard-panel model2-performance-panel" id="ew-panel">
+      <div class="model2-section-header"><div><span class="model2-eyebrow">EARLY WARNING</span><h3>Early-Warning Performance</h3>
+        <p>Did warnings come before DO went critical, how many were false alarms, does the forecast beat "no change", how fast did people respond, and did alerts reach the phones. Computed from the system's own logs.</p></div>
+        <div class="history2-select-wrapper"><select id="ew-days">${[7, 14, 31].map((d) => raw(`<option value="${d}" ${d === 7 ? 'selected' : ''}>Last ${d} days</option>`))}</select>${ic('chevron-down', 14)}</div></div>
+      <div id="ew-body">${raw(loadingBox())}</div>
+    </section>
+
     <section class="dashboard-panel model2-performance-panel">
       <div class="model2-section-header"><div><span class="model2-eyebrow">PREDICTED VS MEASURED</span><h3>Forecasts Against Measured DO (last 48 h)</h3>
         <p>Solid line: measured DO. Dashed line: what the model had predicted for that same time. Inside the light band = accurate; orange dots = misses.</p></div>
@@ -105,6 +112,36 @@ export default async function evaluation(root, ctx) {
       chart = mountChart(host, accuracyChartConfig(pts.map((p) => ({ t: p.target_timestamp_utc, measured: p.observed, forecast: p.predicted })), h, ctx?.live?.()?.rule_reference, { label: 'Prediction' }));
     } catch (err) { host.innerHTML = errorBox(err); }
   }
+  async function loadWarning(days) {
+    const body = page.querySelector('#ew-body');
+    body.innerHTML = loadingBox();
+    try {
+      const res = await get(`/api/evaluation/warning-performance?days=${days}`);
+      const { warning: w, skill, response: rp, delivery: dv, readings } = res.data;
+      const pct = (v) => (v === null || v === undefined ? '--' : `${Math.round(v * 100)}%`);
+      const mins = (v) => (v === null || v === undefined ? '--' : `${fmtNum(v, 0)} min`);
+      body.innerHTML = html`
+        <div class="model2-overview-grid aq-ew-grid">
+          ${card('target', 'Critical events caught early', w.critical_events ? `${w.detected} of ${w.critical_events}` : 'None', w.critical_events ? `${w.missed} missed · detection rate ${pct(w.detection_rate)}` : `DO did not reach ${fmtNum(w.critical_threshold_mg_l, 1)} mg/L in this period.`)}
+          ${card('timer', 'Warning lead time', mins(w.median_lead_minutes), w.shortest_lead_minutes !== null ? `Median. Shortest: ${mins(w.shortest_lead_minutes)} before DO went critical.` : 'Needs at least one caught event.')}
+          ${card('bell', 'False alarms', w.early_warnings ? `${w.false_alarms} of ${w.early_warnings}` : 'None', w.early_warnings ? `${pct(w.false_alarm_ratio)} of early warnings. ${w.not_followed_but_acted_on} more were acted on (aeration / activity), which may have prevented the event.` : 'No early warnings in this period.')}
+          ${card('user-check', 'Time to acknowledge', mins(rp.median_minutes_to_acknowledge), `${rp.acknowledged} of ${rp.alerts} alerts acknowledged · ${rp.acknowledged_within_15_min} within 15 min · ${rp.not_acknowledged} never.`)}
+        </div>
+        <h4 class="aq-ew-sub">Forecast vs "no change" baseline</h4>
+        <div class="model2-table-container"><table class="model2-table"><thead><tr><th>Horizon</th><th>Samples</th><th>Model MAE</th><th>No-change MAE</th><th>Skill</th></tr></thead>
+          <tbody>${skill.map((x) => raw(html`<tr><td><strong>+${x.horizon_minutes} min</strong></td><td>${x.samples}</td>
+            <td>${x.model_mae === null ? '--' : fmtNum(x.model_mae, 3)}</td><td>${x.baseline_mae === null ? '--' : fmtNum(x.baseline_mae, 3)}</td>
+            <td><span class="model2-status-badge ${x.skill === null ? 'pending' : x.skill > 0 ? 'ready' : 'bad'}">${x.skill === null ? '--' : `${x.skill > 0 ? '+' : ''}${fmtNum(x.skill, 2)}`}</span></td></tr>`))}</tbody></table></div>
+        <div class="aq-ew-row">
+          <p><b>Operator response:</b> ${rp.with_action_within_2h} of ${rp.alerts} Warning/Critical alerts were followed by a recorded activity or aeration request within 2 hours${rp.median_minutes_to_first_action !== null ? ` (median ${mins(rp.median_minutes_to_first_action)})` : ''}.</p>
+          <p><b>Alert delivery:</b> ${dv ? `${dv.push_sent} app notifications sent, ${pct(dv.confirmation_rate)} confirmed by the phone${dv.median_seconds_to_phone !== null ? ` (median ${fmtNum(dv.median_seconds_to_phone, 0)} s)` : ''}${dv.push_failed ? `, ${dv.push_failed} failed` : ''}.` : 'No tracked risk alerts in this period (needs migration 006).'}</p>
+        </div>
+        <details class="aq-ew-defs"><summary>How these are defined</summary><ul>${Object.values(res.meta.definitions).map((t) => raw(html`<li>${t}</li>`))}</ul>
+          <p>${readings} readings in this period. ${res.meta.caution}</p></details>`;
+    } catch (err) { body.innerHTML = errorBox(err); }
+  }
+  page.querySelector('#ew-days').addEventListener('change', (e) => loadWarning(Number(e.target.value)));
+  loadWarning(7);
   page.querySelector('#ev-h').addEventListener('change', (e) => loadSeries(Number(e.target.value)));
   await loadSeries(60);
   return () => { chart?.destroy(); };

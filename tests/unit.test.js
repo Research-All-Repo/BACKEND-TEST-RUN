@@ -48,3 +48,38 @@ test('mock cycle is deterministic and internally consistent', () => {
   }
   assert.ok(new Date(a.risk.assessment_timestamp_utc) >= new Date(a.obs.timestamp_utc));
 });
+
+// ---------------- early-warning performance ----------------
+test('warning performance: lead time, missed event, false alarm, acted-on warning, baseline', () => {
+  const { computeWarningMetrics, computeResponse } = require('../src/services/warning-eval');
+  const M = 60000; const t0 = Date.UTC(2026, 9, 1, 0, 0);
+  const obs = []; const risks = [];
+  // 24 h of 10-minute readings at 6 mg/L, with two low periods
+  for (let i = 0; i < 144; i += 1) {
+    const t = t0 + i * 10 * M;
+    const low1 = i >= 30 && i < 34; // 05:00-05:30, warned at 03:20 (100 min ahead)
+    const low2 = i >= 100 && i < 103; // 16:40-17:10, never warned -> missed
+    obs.push({ t, do: low1 || low2 ? 2.5 : 6 });
+    const predicted = (i >= 20 && i < 30) // early warning for event 1
+      || (i >= 60 && i < 63) // warning with nothing after it, nobody acted -> false alarm
+      || (i >= 120 && i < 122); // warning with nothing after it, but aeration was switched on -> acted on
+    risks.push({ t, state: low1 || low2 ? 'CRITICAL' : predicted ? 'WARNING' : 'NORMAL', outlook: predicted ? 'CROSSING_EXPECTED' : 'NO_CROSSING', rule_version: null });
+  }
+  const m = computeWarningMetrics(obs, risks, [t0 + 125 * 10 * M]);
+  assert.equal(m.critical_events, 2);
+  assert.equal(m.detected, 1);
+  assert.equal(m.missed, 1);
+  assert.equal(m.median_lead_minutes, 100);
+  assert.equal(m.early_warnings, 3);
+  assert.equal(m.not_followed_but_acted_on, 1);
+  assert.equal(m.false_alarms, 1);
+  const { computeSkill } = require('../src/services/warning-eval');
+  const sk = computeSkill([{ t: 0, do: 6 }, { t: 30 * M, do: 5 }], [{ h: 30, t: 30 * M, p: 5.2 }]);
+  assert.deepEqual(sk[0], { horizon_minutes: 30, samples: 1, model_mae: 0.2, baseline_mae: 1, skill: 0.8 });
+  const r = computeResponse([{ t: t0, acknowledged_at: t0 + 6 * M }, { t: t0 + 60 * M, acknowledged_at: null }], [t0 + 20 * M], t0 + 200 * M);
+  assert.equal(r.acknowledged, 1);
+  assert.equal(r.median_minutes_to_acknowledge, 6);
+  assert.equal(r.acknowledged_within_15_min, 1);
+  assert.equal(r.not_acknowledged, 1);
+  assert.equal(r.with_action_within_2h, 1);
+});

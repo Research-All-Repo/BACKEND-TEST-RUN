@@ -53,8 +53,8 @@ router.post('/test-broadcast', requireRole('ADMIN'), async (req, res, next) => {
     }).select('audit_id, created_at').single();
     if (error) throw fromSupabase(error);
     // instant delivery to phones that turned on notifications (works even if the app is closed)
-    const pushed = await require('../lib/push').sendToAll({
-      level, test: true, tag: 'aquacast-test', url: '/#live',
+    const pushed = await require('../services/notify').sendAlert({
+      kind: 'TEST', level, test: true, tag: 'aquacast-test', url: '/#live',
       title: level === 'CRITICAL' ? 'TEST: Critical DO alert' : 'TEST: DO Warning alert',
       body: `Test sent by ${sentBy}. Not a real reading. Open AquaCast to see the alert screen.`,
     }).catch((e) => ({ error: e.message }));

@@ -28,10 +28,11 @@ router.get('/', async (req, res, next) => {
         meta: { freshness, generated_at: new Date().toISOString() },
       });
     }
-    const [forecasts, risk, trend] = await Promise.all([
+    const [forecasts, risk, trend, quality] = await Promise.all([
       S.getForecastsForObservation(db, obs.observation_id),
       S.getRiskForObservation(db, obs.observation_id),
       S.getDoTrend(db, obs.timestamp_utc),
+      S.getDataQuality(db, obs.timestamp_utc).catch(() => ({ status: 'OK', flags: [] })),
     ]);
     const critical = forecasts.find((f) => f.forecast_status === 'VALID' && ruleReference(risk?.rule_version).critical_do_mg_l !== null
       && f.predicted_do_mg_l <= ruleReference(risk?.rule_version).critical_do_mg_l);
@@ -46,6 +47,7 @@ router.get('/', async (req, res, next) => {
           ? { crossing_expected: true, expected_threshold_crossing_utc: risk.expected_threshold_crossing_utc, first_horizon_minutes: critical?.horizon_minutes ?? null }
           : { crossing_expected: false, forecast_outlook: risk?.forecast_outlook || 'DATA_UNAVAILABLE' },
         trend,
+        data_quality: quality, // probe / clock sanity checks; informational, never changes the risk state
         system_health: health ? { ...health, matches_latest_observation: health.observation_id === obs.observation_id } : null,
         aerator,
         active_alerts: activeAlerts,

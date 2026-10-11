@@ -12,6 +12,7 @@
 const config = require('../config');
 const { getAdminClient } = require('../lib/supabase');
 const push = require('../lib/push');
+const { sendAlert } = require('./notify');
 const { getCalibration } = require('../lib/dashboard-settings');
 
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
@@ -38,8 +39,8 @@ async function checkStaleAndNotify({ now = Date.now() } = {}) {
     if (claimErr.code === '23505') return { skipped: 'already alerted for this outage', minutes_without_data: ageMin };
     throw claimErr;
   }
-  const result = await push.sendToAll({
-    level: 'WARNING', tag: 'aquacast-stale', url: '/#sensors',
+  const result = await sendAlert({
+    kind: 'STALE', level: 'WARNING', tag: 'aquacast-stale', url: '/#sensors',
     title: 'No new readings from the pond',
     body: `Last reading at ${fmtTime(latest.timestamp_utc)} (${ageMin} min ago). Check the Raspberry Pi power and internet. DO alerts cannot work without data.`,
   });
@@ -56,8 +57,8 @@ async function recoverIfNeeded(db, latestIso) {
   const { data: marked } = await db.from('dashboard_audit_log').update({ details: { ...open.details, recovered_at: new Date().toISOString() } })
     .eq('audit_id', open.audit_id).is('details->>recovered_at', null).select('audit_id');
   if (!marked?.length) return { skipped: 'recovery already sent' };
-  const result = await push.sendToAll({
-    level: 'WARNING', tag: 'aquacast-stale', url: '/#live',
+  const result = await sendAlert({
+    kind: 'RECOVERY', level: 'INFO', tag: 'aquacast-stale', url: '/#live',
     title: 'Pond readings are back', body: `New reading received at ${fmtTime(latestIso)}. Monitoring has resumed.`,
   });
   return { recovered: true, ...result };

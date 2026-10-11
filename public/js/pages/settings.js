@@ -100,7 +100,7 @@ export default async function settings(root, ctx) {
         <div class="settings2-section-header">${ic('wrench', 18)}<div><span class="settings2-eyebrow">SENSOR CALIBRATION</span><h3>Calibration Mode</h3>
           <p>Turn this on while the DO probe is being calibrated or tested. Every dashboard then marks readings as uncalibrated, and no risk or "no data" alarms are sent (test alerts still work). Turn it off when the probe is ready.</p></div></div>
         ${calib && calib.installed !== false ? raw(html`<div class="aq-calib-row ${calib.enabled ? 'on' : ''}">
-          <div><strong>${calib.enabled ? 'On: alerts are paused' : 'Off: alerts are active'}</strong><p>${calib.enabled ? `Turned on${calib.by ? ` by ${calib.by}` : ''}${calib.since ? ` at ${fmtDateTime(calib.since)}` : ''}.${calib.note ? ` Note: ${calib.note}` : ''}` : 'Readings are treated as real and trigger alerts.'}</p></div>
+          <div><strong>${calib.enabled ? 'On: alerts are paused' : 'Off: alerts are active'}</strong><p>${calib.enabled ? `Turned on${calib.by ? ` by ${calib.by}` : ''}${calib.since ? ` at ${fmtDateTime(calib.since)}` : ''}. Switches itself off at ${fmtDateTime(calib.until)}.${calib.note ? ` Note: ${calib.note}` : ''}` : 'Readings are treated as real and trigger alerts.'}</p></div>
           <button type="button" class="aq-btn ${calib.enabled ? 'primary' : 'aq-test-warning'}" id="calib-toggle">${ic(calib.enabled ? 'bell-ring' : 'wrench', 15)}${calib.enabled ? 'Turn off (resume alerts)' : 'Turn on calibration mode'}</button></div>`)
           : raw('<div class="settings2-storage-note"><p>Run <strong>supabase/migrations/004_reliability.sql</strong> in Supabase to enable calibration mode.</p></div>')}
       </section>
@@ -116,12 +116,12 @@ export default async function settings(root, ctx) {
 
       <section class="dashboard-panel settings2-storage-panel">
         <div class="settings2-section-header">${ic('bell-ring', 18)}<div><span class="settings2-eyebrow">ALERT TEST</span><h3>Test Alerts on All Devices</h3>
-          <p>Sends a test alert that every signed-in dashboard (computers and installed phone apps) shows within about a minute: the alert screen, the sound and the phone notification. It is marked TEST and creates no readings.</p></div></div>
+          <p>Sends a test alert to every phone and computer with AquaCast notifications on, even when the app is closed. It is marked TEST and creates no readings.</p></div></div>
         <div class="aq-test-row">
           <button type="button" class="aq-btn aq-test-warning" data-test-alert="WARNING">${ic('bell-ring', 15)}Send test Warning</button>
           <button type="button" class="aq-btn aq-test-critical" data-test-alert="CRITICAL">${ic('triangle-alert', 15)}Send test Critical</button>
         </div>
-        <div class="settings2-storage-note">${ic('info', 15)}<p><strong>Before testing:</strong> on each phone open AquaCast, tap the bell, enable notifications and tap a test sound once. Keep the app open (on screen or just switched away); a phone that is locked for a long time may only show the alert when it is opened again.</p></div>
+        <div class="settings2-storage-note">${ic('info', 15)}<p><strong>Before testing:</strong> on each phone open AquaCast, tap the bell and turn on notifications (iPhone: from the Home Screen app). After a test, Phone Alert Diagnostics below shows which phones confirmed they received it.</p></div>
       </section>
 
       ${dev ? raw(html`<section class="dashboard-panel settings2-tools-panel">
@@ -181,17 +181,18 @@ export default async function settings(root, ctx) {
     })));
     page.querySelector('#calib-toggle')?.addEventListener('click', (e) => {
       const turnOn = !calib.enabled;
-      const go = (note) => busy(e.currentTarget, async () => {
-        try { const r = await put('/api/settings/calibration', { enabled: turnOn, note }); toast(r.meta.message, 'success'); await load(); ctx.refreshLive(); } catch (err) { toast(err.message, 'error'); }
+      const go = (note, hours) => busy(e.currentTarget, async () => {
+        try { const r = await put('/api/settings/calibration', { enabled: turnOn, note, ...(hours ? { hours } : {}) }); toast(r.meta.message, 'success'); await load(); ctx.refreshLive(); } catch (err) { toast(err.message, 'error'); }
       });
       if (!turnOn) { go(null); return; }
       openModal({ overlayClass: 'settings2-modal-overlay', modalClass: 'settings2-modal',
         content: html`<div class="settings2-modal-header"><div><span>SENSOR CALIBRATION</span><h3>Pause alerts while calibrating?</h3>
-          <p>All dashboards will show readings as uncalibrated and no risk or "no data" alarms will be sent until you turn this off.</p></div>
+          <p>All dashboards will show readings as uncalibrated and no risk or "no data" alarms will be sent. It switches itself off after the time you choose, so alarms can never stay silent by accident.</p></div>
           <button type="button" data-close aria-label="Close">${ic('x', 18)}</button></div>
-          <div class="settings2-modal-body"><label class="aq-field">Note for the team (optional)<input id="calib-note" maxlength="300" placeholder="e.g. 2-point calibration of the DO probe"></label></div>
+          <div class="settings2-modal-body"><label class="aq-field">Pause alerts for<select id="calib-hours"><option value="0.5">30 minutes</option><option value="1">1 hour</option><option value="2" selected>2 hours</option><option value="4">4 hours</option><option value="8">8 hours</option></select></label>
+            <label class="aq-field">Note for the team (optional)<input id="calib-note" maxlength="300" placeholder="e.g. 2-point calibration of the DO probe"></label></div>
           <div class="settings2-modal-actions"><button type="button" class="secondary" data-close>Cancel</button><button type="button" class="danger" id="calib-go">Turn on calibration mode</button></div>`,
-        onMount: (m, close) => m.querySelector('#calib-go').addEventListener('click', () => { const note = m.querySelector('#calib-note').value.trim() || null; close(); go(note); }),
+        onMount: (m, close) => m.querySelector('#calib-go').addEventListener('click', () => { const note = m.querySelector('#calib-note').value.trim() || null; const hours = Number(m.querySelector('#calib-hours').value); close(); go(note, hours); }),
       });
     });
     page.querySelector('#dev-offline')?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
@@ -201,6 +202,8 @@ export default async function settings(root, ctx) {
       try { await post('/api/dev/mock-edge', { tick: true }); toast('Cycle pushed.', 'success'); await load(); ctx.refreshLive(); } catch (err) { toast(err.message, 'error'); }
     }));
   }
+
+  const KIND = { RISK: 'Risk', STALE: 'No data', RECOVERY: 'Data back', ESCALATION: 'Escalation', TEST: 'Test' };
 
   /** Every link of the phone-alert chain, green or red, so a broken one is obvious. */
   function diagnosticsHtml(g) {
@@ -219,13 +222,32 @@ export default async function settings(root, ctx) {
         ${row(beatOk, 'Background check (Supabase, every 5 min)', mins === null ? 'Never received. Run 005_stale_data_check.sql with the same secret as PUSH_HOOK_SECRET; with the simulator on, nothing is generated while all apps are closed until this works.' : `Last run ${mins} min ago${g.background_check.simulator ? ` · simulator ${g.background_check.simulator}` : ''} · ${g.background_check.result}.${beatOk ? '' : ' Expected every 5 minutes: check the 005 job and its responses (403 = wrong secret).'}`)}
         ${row(null, 'Data source', g.simulator_enabled ? 'Simulator is ON: readings come from the background check every 5 minutes (and from open dashboards).' : 'Simulator is OFF: readings come from the Raspberry Pi; the Supabase webhook sends alerts the moment a reading is stored.')}
         ${row(g.subscriptions.length > 0, 'Registered devices', g.subscriptions.length ? `${g.subscriptions.length} device(s) will receive alerts.` : 'No device has turned on alerts. On each phone: bell → Enable notifications.')}
+        ${coverageRow(g, row)}
       </ul>
-      ${g.subscriptions.length ? raw(html`<div class="aq-diag-table"><table><thead><tr><th>User</th><th>Device</th><th>Last delivered</th><th>Last problem</th></tr></thead><tbody>
+      ${g.coverage?.length ? raw(html`<details class="aq-diag-more" ${g.coverage.length <= 8 ? 'open' : ''}><summary>Who gets alerts (${g.coverage.length} active users)</summary><div class="aq-diag-table"><table><thead><tr><th>User</th><th>App devices</th><th>Phone last confirmed an alert</th><th>Status</th></tr></thead><tbody>
+        ${[...g.coverage].sort((x, y) => Number(x.reachable) - Number(y.reachable)).map((p) => raw(html`<tr><td>${p.name}${p.role === 'ADMIN' ? raw(' <em>(Admin)</em>') : ''}</td>
+          <td>${p.devices ? `${p.devices}${p.devices_with_errors ? ` (${p.devices_with_errors} with a problem)` : ''}` : 'None'}</td>
+          <td>${p.last_confirmed_at ? fmtDateTime(p.last_confirmed_at) : 'Not yet'}</td>
+          <td class="${p.reachable ? '' : 'bad'}">${p.reachable ? (p.devices_with_errors === p.devices ? 'Device has a problem' : 'Gets alerts') : 'Will NOT get alerts'}</td></tr>`))}
+      </tbody></table></div></details>`) : ''}
+      ${g.alerts?.length ? raw(html`<h4 class="aq-diag-sub">Last alerts and what reached people</h4><ul class="aq-diag-alerts">
+        ${g.alerts.map((a) => raw(html`<li><span class="aq-diag-kind ${a.level.toLowerCase()}">${KIND[a.kind] || a.kind}</span><div><strong>${a.title}</strong>
+          <p>${fmtDateTime(a.created_at)} · ${a.push_sent} sent, ${a.push_confirmed} confirmed by the phone${a.push_failed ? `, ${a.push_failed} failed` : ''}</p></div></li>`))}
+      </ul>`) : ''}
+      ${g.subscriptions.length ? raw(html`<h4 class="aq-diag-sub">Registered app devices</h4><div class="aq-diag-table"><table><thead><tr><th>User</th><th>Device</th><th>Last delivered</th><th>Last problem</th></tr></thead><tbody>
         ${g.subscriptions.map((x) => raw(html`<tr><td>${x.user_name}${x.user_status !== 'ACTIVE' ? raw(' <em>(not active)</em>') : ''}</td><td>${device(x.user_agent || '')} · ${service(x.push_service)}</td>
           <td>${x.last_success_at ? fmtDateTime(x.last_success_at) : 'Never yet'}</td><td class="${x.last_error ? 'bad' : ''}">${x.last_error || '—'}</td></tr>`))}
       </tbody></table></div>`) : ''}
-      ${g.recent_pushes.length ? raw(html`<p class="aq-diag-recent"><b>Recent sends:</b> ${g.recent_pushes.slice(0, 5).map((r) => `${fmtDateTime(r.created_at)} ${r.action === 'ALERT_TEST_BROADCAST' ? 'test' : r.action === 'PUSH_STALE_SENT' ? 'no-data' : (r.details?.state || 'risk')} → ${r.details?.sent ?? 'not recorded'}${r.details?.sent !== undefined ? ' sent' : ''}${r.details?.failed ? `, ${r.details.failed} failed` : ''}`).join(' · ')}</p>`) : ''}
+      ${!g.alerts?.length && g.recent_pushes.length ? raw(html`<p class="aq-diag-recent"><b>Recent sends:</b> ${g.recent_pushes.slice(0, 5).map((r) => `${fmtDateTime(r.created_at)} ${r.action === 'ALERT_TEST_BROADCAST' ? 'test' : r.action === 'PUSH_STALE_SENT' ? 'no-data' : (r.details?.state || 'risk')} → ${r.details?.sent ?? 'not recorded'}${r.details?.sent !== undefined ? ' sent' : ''}${r.details?.failed ? `, ${r.details.failed} failed` : ''}`).join(' · ')}</p>`) : ''}
     </section>`;
+  }
+
+  function coverageRow(g, row) {
+    if (!g.coverage?.length) return '';
+    const missing = g.coverage.filter((p) => !p.reachable);
+    return row(!missing.length, 'Everyone reachable', missing.length
+      ? `${missing.slice(0, 6).map((p) => p.name).join(', ')}${missing.length > 6 ? ` and ${missing.length - 6} more` : ''} will NOT get alerts: no phone or computer has notifications on. Ask them to open AquaCast → bell → turn on notifications (iPhone: from the Home Screen app).`
+      : `All ${g.coverage.length} active user(s) have at least one device with notifications on.`);
   }
 
   function guard(i, label, value, note) {

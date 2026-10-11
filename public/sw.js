@@ -1,7 +1,7 @@
 // AquaCast service worker: lets the dashboard be installed on the home screen, opens the
 // app shell when the network is flaky, and shows / handles risk-alert notifications.
 // API calls (/api/*) are NEVER cached: monitoring data always comes live from the server.
-const CACHE = 'aquacast-shell-v18';
+const CACHE = 'aquacast-shell-v21';
 const SHELL = [
   '/', '/index.html', '/manifest.webmanifest',
   '/css/aquacast.css', '/css/aquacast-extra.css',
@@ -79,6 +79,13 @@ self.addEventListener('push', (event) => {
       actions: [{ action: 'open', title: 'Open AquaCast' }],
       data: { url: d.url || '/#live' },
     });
+    // tell the server this phone really showed the alert (delivery tracking)
+    if (d.receipt?.id) {
+      try {
+        await fetch('/api/push/receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit',
+          body: JSON.stringify({ id: d.receipt.id, sig: d.receipt.sig }) });
+      } catch { /* offline: the delivery simply stays unconfirmed */ }
+    }
     try { if (self.navigator.setAppBadge) await self.navigator.setAppBadge(1); } catch { /* unsupported */ }
     // an open dashboard refreshes at once (shows the alert screen and plays the alarm)
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

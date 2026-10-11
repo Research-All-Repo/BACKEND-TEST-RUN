@@ -241,6 +241,11 @@ test('calibration mode: admin toggles it, live shows it, risk alerts pause, staf
   const on = await adminC.call('PUT', '/api/settings/calibration', { enabled: true, note: 'test run' });
   assert.equal(on.status, 200, JSON.stringify(on.json));
   assert.equal(on.json.data.enabled, true);
+  const until = new Date(on.json.data.until).getTime() - Date.now();
+  assert.ok(until > 100 * 60_000 && until <= 121 * 60_000, 'switches itself off after the default 2 hours');
+  const short = await adminC.call('PUT', '/api/settings/calibration', { enabled: true, note: 'test run', hours: 0.5 });
+  assert.ok(new Date(short.json.data.until).getTime() - Date.now() <= 31 * 60_000);
+  assert.equal((await adminC.call('PUT', '/api/settings/calibration', { enabled: true, hours: 99 })).status, 400);
   const live = await adminC.get('/api/live');
   assert.equal(live.json.data.calibration.enabled, true);
   const pulse = await adminC.get('/api/live/pulse');
@@ -277,6 +282,17 @@ test('device test answers at once and sends in the background', async () => {
   assert.equal(r.json.data.scheduled, true);
   assert.ok(Date.now() - t0 < 5000, 'does not hold the request open for the delay');
   await staffC.post('/api/push/unsubscribe', { endpoint });
+});
+
+test('delivery receipts must be signed; diagnostics list who can be reached', async () => {
+  const receipt = await new Client().call('POST', '/api/push/receipt', { id: crypto.randomUUID(), sig: 'x'.repeat(32) });
+  assert.equal(receipt.status, 400, 'unsigned receipts are refused');
+  const diag = await adminC.get('/api/push/diagnostics');
+  assert.equal(diag.status, 200);
+  const row = diag.json.data.coverage.find((p) => p.user_id === staffId);
+  assert.ok(row, 'active staff user is listed');
+  assert.equal(row.reachable, row.devices > 0);
+  assert.equal((await staffC.get('/api/push/diagnostics')).status, 403);
 });
 
 test('push hooks refuse calls without the shared secret', async () => {

@@ -25,7 +25,7 @@ const EVENT_LABELS = {
   AERATOR_ON_REQUEST: 'Aerator ON Request', AERATOR_OFF_REQUEST: 'Aerator OFF Request', RISK_WARNING: 'System Warning', RISK_CRITICAL: 'Critical Warning',
   ALERT_ACKNOWLEDGED: 'Alert Acknowledgement', STUDY_METADATA_UPDATED: 'Settings Update', AERATOR_MODE_REQUESTED: 'Aerator Mode Request',
   USER_ACCESS_APPROVE: 'User Approved', USER_ACCESS_REJECT: 'Request Rejected', USER_ACCESS_SUSPEND: 'User Suspended', USER_ACCESS_REACTIVATE: 'User Reactivated',
-  USER_ACCESS_REVOKE: 'Access Revoked', USER_ACCESS_CHANGE_ROLE: 'Role Changed', USER_DETAILS_UPDATED: 'User Details Updated', MANAGEMENT_EVENT_CLOSED: 'Activity Closed', MOCK_EDGE_STATE_CHANGED: 'Simulator Online/Offline', ALERT_TEST_BROADCAST: 'Test Alert Sent', PUSH_RISK_SENT: 'Phone Alert Sent', PUSH_STALE_SENT: 'No-Data Alert Sent', CALIBRATION_MODE_CHANGED: 'Calibration Mode Changed',
+  USER_ACCESS_REVOKE: 'Access Revoked', USER_ACCESS_CHANGE_ROLE: 'Role Changed', USER_DETAILS_UPDATED: 'User Details Updated', MANAGEMENT_EVENT_CLOSED: 'Activity Closed', MOCK_EDGE_STATE_CHANGED: 'Simulator Online/Offline', ALERT_TEST_BROADCAST: 'Test Alert Sent', PUSH_RISK_SENT: 'Phone Alert Sent', PUSH_STALE_SENT: 'No-Data Alert Sent', CALIBRATION_MODE_CHANGED: 'Calibration Mode Changed', PUSH_RISK_FAILED: 'Alert Not Delivered (Retrying)', ALERT_ESCALATED: 'Unanswered Critical Escalated',
 };
 export const eventLabel = (t) => EVENT_LABELS[t] || String(t || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -151,9 +151,11 @@ export function describeEvent(a) {
     switch (a.event_type) {
       case 'MOCK_EDGE_STATE_CHANGED': return `Simulated edge device set ${d.offline ? 'OFFLINE' : 'ONLINE'} (test data only).`;
       case 'PUSH_RISK_SENT': return `${d.reminder ? 'Reminder: ' : ''}${d.state} alert (DO ${d.do}) pushed to ${d.sent ?? 0} phone(s)${d.failed ? `, ${d.failed} failed` : ''}.`;
+      case 'PUSH_RISK_FAILED': return `${d.state} alert (DO ${d.do}) could not reach anyone${d.error ? ` (${d.error})` : ''}; the 5-minute check retries it.`;
+      case 'ALERT_ESCALATED': return `Critical alert not acknowledged after ${d.after_minutes} min: sent again to everyone (${d.sent ?? 0} device(s)).`;
       case 'ALERT_TEST_BROADCAST': return `Test ${d.level} alert sent to all signed-in devices (no real reading).`;
       case 'PUSH_STALE_SENT': return d.recovered_at ? `No readings for ${d.minutes_without_data} min; phones were alerted, and told when readings resumed.` : `No readings for ${d.minutes_without_data} min; ${d.sent ?? 0} phone(s) alerted.`;
-      case 'CALIBRATION_MODE_CHANGED': return d.enabled ? `Calibration mode ON: readings marked uncalibrated, risk alerts paused.${d.note ? ` Note: ${d.note}` : ''}` : 'Calibration mode OFF: alerts active again.';
+      case 'CALIBRATION_MODE_CHANGED': return d.enabled ? `Calibration mode ON: readings marked uncalibrated, risk alerts paused${d.until ? ' until the set end time' : ''}.${d.note ? ` Note: ${d.note}` : ''}` : d.automatic ? 'Calibration time ended: alerts switched back on automatically.' : 'Calibration mode OFF: alerts active again.';
       default: break;
     }
   }

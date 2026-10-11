@@ -13,6 +13,7 @@
 const config = require('../config');
 const { getAdminClient } = require('../lib/supabase');
 const push = require('../lib/push');
+const { sendAlert } = require('./notify');
 const { getCalibration } = require('../lib/dashboard-settings');
 
 const RANK = { NORMAL: 0, WATCH: 0, DATA_UNAVAILABLE: 0, WARNING: 1, CRITICAL: 2 };
@@ -56,14 +57,24 @@ async function evaluateAndNotify() {
 
   const time = at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
   const critical = level === 2;
-  const result = await push.sendToAll({
-    level: cur.current_risk_state,
-    title: critical ? `CRITICAL: low dissolved oxygen${reminder ? ' (still critical)' : ''}` : 'Warning: dissolved oxygen dropping',
-    body: `DO ${doText} at ${time}. ${critical ? 'Immediate operator review needed. Open AquaCast to act.' : 'Below the normal boundary. Check the pond.'}`,
-    tag: 'aquacast-risk', url: '/#live',
-  });
-  await db.from('dashboard_audit_log').update({ details: { state: cur.current_risk_state, do: doText, reminder, ...result } }).eq('audit_id', claim.audit_id);
-  return { sent: true, reminder, ...result };
+  let result;
+  try {
+    result = await sendAlert({
+      kind: 'RISK', level: cur.current_risk_state, tag: 'aquacast-risk', url: '/#live',
+      title: critical ? `CRITICAL: low dissolved oxygen${reminder ? ' (still critical)' : ''}` : 'Warning: dissolved oxygen dropping',
+      body: `DO ${doText} at ${time}. ${critical ? 'Immediate operator review needed. Open AquaCast to act.' : 'Below the normal boundary. Check the pond.'}`,
+    });
+  } catch (err) {
+    result = { sent: 0, error: err.message };
+  }
+  // Nobody could be reached at all (e.g. push keys broken): release the claim so the
+  // 5-minute background check tries this alert again instead of treating it as delivered.
+  const reachedNobody = !result.sent && (result.failed || result.error);
+  await db.from('dashboard_audit_log').update({
+    ...(reachedNobody ? { action: 'PUSH_RISK_FAILED' } : {}),
+    details: { state: cur.current_risk_state, do: doText, reminder, ...result },
+  }).eq('audit_id', claim.audit_id);
+  return { sent: !reachedNobody, retry: reachedNobody, reminder, ...result };
 }
 
 module.exports = { evaluateAndNotify };

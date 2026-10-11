@@ -86,30 +86,43 @@ async function listSubscriptions() {
     user_name: byId.get(s.user_id)?.full_name || byId.get(s.user_id)?.email || 'Unknown user', user_status: byId.get(s.user_id)?.status || 'UNKNOWN' }));
 }
 
-async function sendTo(subs, payload) {
+/**
+ * Push one notification to one subscription. Never throws: returns { ok } or { ok:false, removed?, error }.
+ * Records the outcome on the subscription (diagnostics) and deletes registrations the push
+ * service says no longer exist (404/410: app removed / notifications turned off).
+ */
+async function sendOne(s, payload) {
+  setup();
   const db = getAdminClient();
-  const body = JSON.stringify({ ...payload, sentAt: new Date().toISOString() });
-  let sent = 0; let failed = 0; let removed = 0; const errors = [];
-  await Promise.all(subs.map(async (s) => {
-    try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth_secret } }, body,
-        // no "Topic" header: Apple's push service (iPhone) rejects it with 400 BadWebPushTopic.
-        // Replacing an older alert is handled on the phone by the notification tag instead.
-        { TTL: payload.level === 'CRITICAL' ? 7200 : 3600, urgency: 'high' });
-      sent += 1;
-      await db.from('push_subscriptions').update({ last_success_at: new Date().toISOString(), last_error: null }).eq('subscription_id', s.subscription_id);
-    } catch (err) {
-      if (err.statusCode === 404 || err.statusCode === 410) { // browser unsubscribed / app removed
-        await db.from('push_subscriptions').delete().eq('subscription_id', s.subscription_id); removed += 1;
-      } else {
-        failed += 1;
-        const why = `${err.statusCode || ''} ${String(err.body || err.message || '').slice(0, 160)}`.trim();
-        errors.push(why);
-        await db.from('push_subscriptions').update({ last_error: why.slice(0, 200) }).eq('subscription_id', s.subscription_id);
-      }
+  const body = JSON.stringify({ ...payload, sentAt: payload.sentAt || new Date().toISOString() });
+  try {
+    await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth_secret } }, body,
+      // no "Topic" header: Apple's push service (iPhone) rejects it with 400 BadWebPushTopic.
+      // Replacing an older alert is handled on the phone by the notification tag instead.
+      { TTL: payload.level === 'CRITICAL' ? 7200 : 3600, urgency: 'high' });
+    await db.from('push_subscriptions').update({ last_success_at: new Date().toISOString(), last_error: null }).eq('subscription_id', s.subscription_id);
+    return { ok: true };
+  } catch (err) {
+    if (err.statusCode === 404 || err.statusCode === 410) { // browser unsubscribed / app removed
+      await db.from('push_subscriptions').delete().eq('subscription_id', s.subscription_id);
+      return { ok: false, removed: true, error: `${err.statusCode} registration expired` };
     }
+    const why = `${err.statusCode || ''} ${String(err.body || err.message || '').slice(0, 160)}`.trim();
+    await db.from('push_subscriptions').update({ last_error: why.slice(0, 200) }).eq('subscription_id', s.subscription_id);
+    return { ok: false, error: why };
+  }
+}
+
+async function sendTo(subs, payload) {
+  let sent = 0; let failed = 0; let removed = 0; const errors = [];
+  const sentAt = new Date().toISOString();
+  await Promise.all(subs.map(async (s) => {
+    const r = await sendOne(s, { ...payload, sentAt });
+    if (r.ok) sent += 1;
+    else if (r.removed) removed += 1;
+    else { failed += 1; errors.push(r.error); }
   }));
   return { sent, failed, removed, ...(errors.length ? { errors: errors.slice(0, 3) } : {}) };
 }
 
-module.exports = { enabled, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, hasSubscription, listSubscriptions, configError };
+module.exports = { enabled, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, sendOne, hasSubscription, listSubscriptions, configError };

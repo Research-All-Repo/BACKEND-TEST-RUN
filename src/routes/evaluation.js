@@ -2,6 +2,8 @@
 const express = require('express');
 const { unwrap, E } = require('../lib/errors');
 const { parseRange } = require('../lib/helpers');
+const { getAdminClient } = require('../lib/supabase');
+const { loadWarningPerformance } = require('../services/warning-eval');
 
 const router = express.Router();
 
@@ -63,6 +65,32 @@ router.get('/series', async (req, res, next) => {
     const points = fc.map((f) => ({ target_timestamp_utc: f.target_timestamp_utc, predicted: f.predicted_do_mg_l,
       observed: actual.get(new Date(f.target_timestamp_utc).getTime()) ?? null })).filter((p) => p.observed !== null);
     res.json({ data: { horizon_minutes: horizon, points }, meta: { from, to, count: points.length } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/evaluation/warning-performance?days=7  (max 31)
+ * Early-warning lead time, missed events, false alarms, "no change" baseline, operator response
+ * times and phone delivery, from the system's own logs. Definitions in src/services/warning-eval.js.
+ */
+router.get('/warning-performance', async (req, res, next) => {
+  try {
+    const days = Math.min(31, Math.max(1, Number(req.query.days) || 7));
+    const to = new Date().toISOString();
+    const from = new Date(Date.now() - days * 86400_000).toISOString();
+    const data = await loadWarningPerformance(getAdminClient(), { from, to });
+    res.json({ data: { ...data, days }, meta: { from, to,
+      definitions: {
+        critical_event: 'Observed DO at or below the critical threshold after at least 30 minutes above it.',
+        early_warning: 'The forecast predicted DO would cross the critical threshold while it was still above it (one per continuous prediction period).',
+        detected: 'An early warning was active within 130 minutes (the 120-minute forecast window + 10) before the event started.',
+        lead_time: 'Minutes from the start of that early warning to the start of the critical event.',
+        false_alarm: 'An early warning not followed by a critical event within 130 minutes, and with no aeration or recorded action within 120 minutes. Warnings that were acted on are counted separately: the action may have prevented the event.',
+        skill: 'Forecast error compared with simply assuming DO stays the same (no-change baseline), on the same readings. Skill above 0 means the model adds value; 0.30 means 30% smaller error.',
+      },
+      caution: 'Computed from the data in the database. With the simulator on these describe simulated data, not the thesis results.' } });
   } catch (err) {
     next(err);
   }

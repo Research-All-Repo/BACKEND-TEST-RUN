@@ -143,6 +143,7 @@ export default async function live(root, ctx) {
             <span class="aq-hero-risk">${ic(RISK_ICON[rk] || 'circle-help', 16)}${riskLabel(risk)}</span>
             <span class="aq-hero-fresh fresh-${fresh.toLowerCase()}"><span class="aq-hero-dot"></span>${FRESH[fresh] || fresh}${o ? ` · updated ${ago(o.timestamp_utc).toLowerCase()}` : ''}</span>
             ${calib ? raw(`<span class="aq-hero-calib">${icon('wrench', 13)}Uncalibrated · alerts paused</span>`) : ''}
+            ${d.data_quality?.flags?.length ? raw(`<span class="aq-hero-calib">${icon('triangle-alert', 13)}Check probe</span>`) : ''}
           </div>
           <div class="aq-hero-reading">
             <div class="aq-hero-value"><span class="aq-hero-label">Dissolved oxygen now</span>
@@ -151,6 +152,8 @@ export default async function live(root, ctx) {
               <div><b>${trend?.label || 'Not enough data'}</b><small>${slope === null || slope === undefined ? 'needs 3 readings in 1 h' : `${slope > 0 ? '+' : ''}${fmtNum(slope)} mg/L per hour (measured)`}</small></div></div>
           </div>
           ${doR && !doR.usable && o ? raw(html`<p class="aq-hero-note">DO reading not usable this cycle (${doR.quality_status.replace(/_/g, ' ')}).</p>`) : ''}
+          ${d.data_quality?.flags?.length ? raw(html`<div class="aq-hero-quality" role="note">${ic('triangle-alert', 16)}<div><strong>Check the DO probe before acting</strong>
+            ${d.data_quality.flags.map((f) => raw(html`<p>${f.message}</p>`))}<small>Automatic sanity check. It does not change the risk level.</small></div></div>`) : ''}
           ${d.risk && !d.risk.available && o ? raw(html`<p class="aq-hero-note">${d.risk.message}</p>`) : ''}
           <div class="aq-hero-limits"><span>Normal at or above <b>${fmtNum(rule.watch_boundary_do_mg_l, 1)} mg/L</b></span><span>Critical at or below <b>${fmtNum(rule.critical_do_mg_l, 1)} mg/L</b></span></div>
 

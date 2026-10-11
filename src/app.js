@@ -41,6 +41,8 @@ function createApp({ mockEdge = null } = {}) {
   // Supabase Database Webhook -> instant phone alerts (secret header; mounted before the CSRF check)
   app.post('/api/push/risk-hook', require('./routes/push').riskHook);
   app.post('/api/push/stale-check', require('./routes/push').staleHook);
+  // the phone's service worker confirms it displayed an alert (signed id, no session needed)
+  app.post('/api/push/receipt', require('./routes/push').receiptHook);
 
   // CSRF defence for cookie sessions: state-changing API calls must carry a custom
   // header (browsers cannot add it cross-site without CORS, which is not enabled)

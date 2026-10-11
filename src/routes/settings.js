@@ -88,12 +88,16 @@ router.put('/calibration', requireRole('ADMIN'), async (req, res, next) => {
     if (typeof req.body?.enabled !== 'boolean') throw E.validation('enabled must be true or false.');
     const note = sanitizeText(req.body.note || '', 300) || null;
     const { user, profile } = req.auth;
-    const value = await setCalibration(req.body.enabled, { userId: user.id, byName: profile.full_name || user.email, note });
+    const hours = req.body.hours === undefined ? undefined : Number(req.body.hours);
+    if (hours !== undefined && !(hours >= 0.25 && hours <= 24)) throw E.validation('hours must be between 0.25 and 24.');
+    const value = await setCalibration(req.body.enabled, { userId: user.id, byName: profile.full_name || user.email, note, hours });
     await getAdminClient().from('dashboard_audit_log').insert({
       actor_user_id: user.id, action: 'CALIBRATION_MODE_CHANGED', target_table: 'dashboard_settings', target_id: 'calibration_mode',
-      details: { enabled: req.body.enabled, note },
+      details: { enabled: req.body.enabled, note, ...(value.until ? { until: value.until } : {}) },
     });
-    res.json({ data: value, meta: { message: req.body.enabled ? 'Calibration mode is on: readings are marked uncalibrated and risk alerts are paused.' : 'Calibration mode is off: alerts are active again.' } });
+    res.json({ data: value, meta: { message: req.body.enabled
+      ? `Calibration mode is on until ${new Date(value.until).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}: readings are marked uncalibrated and risk alerts are paused. It switches itself off then.`
+      : 'Calibration mode is off: alerts are active again.' } });
   } catch (err) {
     if (/dashboard_settings/.test(err?.message || '')) return next(E.validation('Run migration 004_reliability.sql in Supabase first.'));
     next(err);

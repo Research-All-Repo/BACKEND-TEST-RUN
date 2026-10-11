@@ -62,6 +62,11 @@ const config = {
     criticalReminderMinutes: num('PUSH_CRITICAL_REMINDER_MINUTES', 30), staleMinutes: num('PUSH_STALE_MINUTES', 30),
   },
 
+  // Unacknowledged CRITICAL alert -> escalation push to everyone after this many minutes
+  escalateAfterMinutes: num('ESCALATE_AFTER_MINUTES', 15),
+  // Calibration mode switches itself off after this many hours unless an Admin picks another duration
+  calibrationDefaultHours: num('CALIBRATION_DEFAULT_HOURS', 2),
+
   // Mock edge device (simulates the Raspberry Pi pushing data and acknowledging commands)
   mockEdge: {
     enabled: bool('MOCK_EDGE_ENABLED', false),

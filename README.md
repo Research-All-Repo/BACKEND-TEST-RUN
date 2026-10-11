@@ -226,6 +226,18 @@ Alerts reach a closed app through Web Push. Each link can be checked in **System
 
 A **Refresh** button sits in the header on every page (icon only on phones). It reloads the live status and the page on screen without jumping back to the top, then says whether a newer reading arrived. When data is delayed, the button shows an amber dot and the delayed-data banner gets its own **Refresh now** button. Refreshing cannot make the Raspberry Pi send faster: readings arrive every 10 minutes; while the simulator is on, a refresh also lets it catch up on missing readings.
 
+## 16. Delivery tracking, escalation and other safeguards (migration 006)
+
+Run `supabase/migrations/006_alert_delivery.sql` once in Supabase. Then:
+
+- **Delivery tracking.** Every Warning / Critical push carries a signed receipt; the phone's service worker confirms it the moment the notification is shown. Diagnostics and Model Evaluation then show which phones really received each alert, not only that the push service accepted it.
+- **Escalation.** A Critical alert nobody acknowledges within `ESCALATE_AFTER_MINUTES` (15) is sent again to everyone as a separate "nobody has responded" push, once, while the pond is still critical.
+- **Retry.** A risk alert that reached nobody (every send failed) is released and retried by the 5-minute check for up to an hour.
+- **Calibration mode ends by itself** after the chosen time (default 2 h), so alarms cannot stay silent by accident.
+- **Probe sanity checks** on Live Status: DO unchanged for an hour (stuck probe), a jump of more than 2.5 mg/L in one reading, impossible values, or a Raspberry Pi clock in the future. Informational only; they never change the risk state.
+- **Early-warning performance** (Model Evaluation): critical events caught early, lead time, false alarms (warnings that were acted on are counted separately), forecast skill against a "no change" baseline on the same readings, time to acknowledge, operator actions, and how many alerts the phones confirmed.
+- **Diagnostics** (System Settings): who can be reached (has a device with notifications on, or nobody), and for the last alerts how many phones confirmed them.
+
 ## Tests
 
 ```bash
