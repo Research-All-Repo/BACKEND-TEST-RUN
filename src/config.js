@@ -49,7 +49,15 @@ const config = {
   push: {
     publicKey: process.env.VAPID_PUBLIC_KEY || '',
     privateKey: process.env.VAPID_PRIVATE_KEY || '',
-    subject: process.env.VAPID_SUBJECT || 'mailto:admin@aquacast.local',
+    // web-push needs "mailto:you@example.com" or an https URL; a bare email is accepted and fixed here
+    subject: (() => {
+      const v = String(process.env.VAPID_SUBJECT || '').trim().replace(/^['"]|['"]$/g, '');
+      if (!v) return 'mailto:admin@aquacast.local';
+      if (/^mailto:/i.test(v)) return `mailto:${v.slice(7).trim()}`;
+      if (/^https:\/\//i.test(v)) return v;
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return `mailto:${v}`;
+      return 'mailto:admin@aquacast.local';
+    })(),
     hookSecret: process.env.PUSH_HOOK_SECRET || '',
     criticalReminderMinutes: num('PUSH_CRITICAL_REMINDER_MINUTES', 30), staleMinutes: num('PUSH_STALE_MINUTES', 30),
   },

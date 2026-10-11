@@ -61,7 +61,8 @@ router.get('/diagnostics', requireRole('ADMIN'), async (req, res, next) => {
         .order('created_at', { ascending: false }).limit(8).then((r) => r.data || []),
     ]);
     res.json({ data: {
-      vapid_configured: push.enabled(),
+      vapid_configured: push.enabled() && !push.configError(),
+      vapid_error: push.configError(),
       hook_secret_configured: !!config.push.hookSecret,
       simulator_enabled: !!config.mockEdge?.enabled,
       background_check: beat ? { at: beat.updated_at, ...beat.value } : null,

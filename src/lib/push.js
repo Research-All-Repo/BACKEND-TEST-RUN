@@ -16,6 +16,12 @@ function setup() {
   configured = true;
 }
 
+/** Why push cannot work with the current VAPID settings (null when they are fine). Shown in diagnostics. */
+function configError() {
+  if (!enabled()) return 'VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are missing.';
+  try { setup(); return null; } catch (e) { return e.message; }
+}
+
 /** Save (or refresh) one browser's subscription for this user. */
 async function saveSubscription(userId, sub, userAgent) {
   if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) throw new Error('Invalid push subscription.');
@@ -104,4 +110,4 @@ async function sendTo(subs, payload) {
   return { sent, failed, removed, ...(errors.length ? { errors: errors.slice(0, 3) } : {}) };
 }
 
-module.exports = { enabled, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, hasSubscription, listSubscriptions };
+module.exports = { enabled, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, hasSubscription, listSubscriptions, configError };
