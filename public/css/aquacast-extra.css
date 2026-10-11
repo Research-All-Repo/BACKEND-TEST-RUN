@@ -1,0 +1,143 @@
+/* AquaCast – additions for live-backend states that the prototype stylesheet (aquacast.css) does not cover.
+   Same palette: slate text, teal #0d9488 accents, rounded white panels, Arial. */
+
+.aq-hidden { display: none !important; }
+
+/* Data freshness / connectivity banner (LIVE is hidden) */
+.aq-freshness {
+  display: flex; align-items: flex-start; gap: 12px;
+  border-radius: 16px; border: 1px solid; padding: 12px 16px; margin-bottom: 16px;
+  font-size: 13px; line-height: 1.45;
+}
+.aq-freshness svg { flex-shrink: 0; margin-top: 2px; }
+.aq-freshness strong { display: block; font-size: 11px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.aq-freshness.sync_delayed { background: #fffbeb; border-color: #f59e0b55; color: #92400e; }
+.aq-freshness.offline, .aq-freshness.no_data, .aq-freshness.supabase_unavailable,
+.aq-freshness.backend_unreachable { background: #fff1f2; border-color: #f43f5e44; color: #9f1239; }
+.aq-freshness.browser_offline { background: #f1f5f9; border-color: #cbd5e1; color: #334155; }
+
+/* Loading / error / empty placeholders inside panels */
+.aq-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  min-height: 160px; padding: 26px; text-align: center; border-radius: 16px;
+  color: #64748b; background: #f8fafc; border: 1px dashed #cbd5e1; font-size: 13px;
+}
+.aq-state strong { color: #334155; font-size: 14px; font-weight: 900; }
+.aq-state p { margin: 0; max-width: 460px; line-height: 1.5; }
+.aq-state.error { background: #fff1f2; border-color: #f43f5e44; color: #9f1239; }
+.aq-state.error strong { color: #9f1239; }
+.aq-state.small { min-height: 90px; padding: 16px; }
+.aq-spin { animation: aq-spin 1s linear infinite; }
+@keyframes aq-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .aq-spin { animation: none; } }
+.aq-page-loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 320px; color: #0f766e; font-weight: 700; }
+
+/* Toasts */
+.aq-toasts { position: fixed; right: 18px; bottom: 18px; z-index: 3000; display: flex; flex-direction: column; gap: 8px; max-width: min(380px, calc(100vw - 32px)); }
+.aq-toast {
+  display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 14px;
+  background: #0f172a; color: #fff; font-size: 13px; line-height: 1.45; box-shadow: 0 14px 34px #0f172a33;
+}
+.aq-toast.success { background: #065f46; }
+.aq-toast.error { background: #9f1239; }
+.aq-toast svg { flex-shrink: 0; margin-top: 1px; }
+
+/* Charts (dependency-free SVG drawn in the recharts look) */
+.aq-chart { width: 100%; height: 100%; display: block; overflow: visible; }
+.aq-chart text { font-family: Arial, Helvetica, sans-serif; font-size: 11px; fill: #64748b; }
+.aq-chart .grid line { stroke: #e2e8f0; stroke-dasharray: 4 4; }
+.aq-chart .axis-label { font-size: 10px; font-weight: 700; fill: #94a3b8; }
+.aq-chart .ref-label { font-size: 10px; font-weight: 700; }
+.aq-chart-tooltip {
+  position: absolute; pointer-events: none; z-index: 20; min-width: 140px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px 11px;
+  box-shadow: 0 10px 26px #0f172a1f; font-size: 12px; color: #334155;
+}
+.aq-chart-tooltip strong { display: block; color: #0f172a; font-size: 11px; margin-bottom: 3px; }
+.aq-chart-tooltip span { display: flex; align-items: center; gap: 6px; }
+.aq-chart-tooltip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.aq-chart-host { position: relative; }
+
+/* User directory states the prototype did not need */
+.user2-status.pending { color: #b45309; background: #f59e0b1a; }
+.user2-status.pending > span { background: #f59e0b; }
+.user2-status.revoked { color: #be123c; background: #f43f5e14; }
+.user2-status.revoked > span { background: #e11d48; }
+.user2-verify { display: block; font-size: 10px; font-weight: 700; color: #94a3b8; margin-top: 2px; }
+.user2-verify.no { color: #be123c; }
+.user2-request-card .user2-verify { margin-top: 4px; }
+
+/* Small helpers reused across pages */
+.aq-muted { color: #94a3b8; }
+.aq-mono { font-family: Consolas, "Courier New", monospace; }
+.aq-inline-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; color: #64748b; font-size: 12px; line-height: 1.5; }
+.aq-inline-note svg { flex-shrink: 0; margin-top: 2px; color: #0d9488; }
+.aq-input {
+  width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; background: #fff;
+  font: inherit; font-size: 12px; color: #0f172a; outline: none;
+}
+.aq-input:focus { border-color: #14b8a6; box-shadow: 0 0 0 3px #14b8a61f; }
+.aq-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer;
+  border-radius: 12px; border: 1px solid #e2e8f0; background: #fff; color: #334155;
+  padding: 9px 14px; font: inherit; font-size: 12px; font-weight: 800;
+}
+.aq-btn:hover { background: #f8fafc; }
+.aq-btn.primary { background: linear-gradient(135deg, #0d9488, #0284c7); border-color: transparent; color: #fff; }
+.aq-btn.danger { color: #be123c; border-color: #f43f5e44; }
+.aq-btn:disabled, .manual-aeration-button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Manual aeration: pending command + recent commands */
+.aq-command-pending {
+  display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 10px 12px; border-radius: 12px;
+  background: #f0f9ff; border: 1px solid #0284c733; color: #075985; font-size: 12px; line-height: 1.45;
+}
+.aq-command-pending.problem { background: #fff1f2; border-color: #f43f5e33; color: #9f1239; }
+.aq-command-list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.aq-command-list li { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: #64748b; border-top: 1px solid #f1f5f9; padding-top: 6px; }
+.aq-command-list b { color: #334155; }
+.manual-aeration-state.pending { color: #0369a1; background: #0284c71a; }
+.manual-aeration-state.unknown { color: #64748b; background: #94a3b81f; }
+
+/* History custom range inputs */
+.history2-custom-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.history2-custom-range .aq-input { padding: 8px 10px; font-size: 12px; }
+
+/* Settings: aeration mode buttons */
+.aq-mode-toggle { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.aq-kv { display: grid; grid-template-columns: minmax(130px, 38%) 1fr; gap: 8px 14px; font-size: 13px; }
+.aq-kv > span { color: #64748b; }
+.aq-kv > strong { color: #0f172a; font-weight: 800; }
+
+/* Live page: edge health strip */
+.live-health-panel { margin-top: 18px; }
+
+@media (width <= 640px) {
+  .aq-kv { grid-template-columns: 1fr; gap: 2px; }
+  .aq-kv > strong { margin-bottom: 6px; }
+  .history2-custom-range { grid-template-columns: 1fr; }
+}
+
+/* User Directory / modals: danger submit, textarea + inputs inside prototype forms */
+.user2-form-actions .primary.aq-danger, .settings2-modal-actions .aq-danger { background: #e11d48; border-color: #e11d48; color: #fff; }
+.user2-form textarea, .user2-form input { width: 100%; box-sizing: border-box; font: inherit; }
+.user2-table-container { overflow: visible; }
+@media (width <= 900px) { .user2-table-container { overflow-x: auto; } }
+
+/* Settings: textarea in the profile form */
+.settings2-form-group textarea, .settings2-form-group select {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; color: #0f172a;
+  border: 1px solid #cbd5e1; border-radius: 10px; padding: 9px 10px; background: #fff; outline: none;
+}
+.settings2-form-group textarea:focus, .settings2-form-group select:focus { border-color: #14b8a6; box-shadow: 0 0 0 3px #14b8a61f; }
+.settings2-form-group input:disabled { background: #f8fafc; color: #64748b; }
+
+/* Activity Log: keep long station names and descriptions readable */
+.activity2-table .activity2-station { display: inline-block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.activity2-table td.activity2-description { min-width: 280px; }
+.activity2-type-cell small { display: block; color: #94a3b8; font-size: 10px; font-weight: 600; }
+
+/* Section headers that start with an icon: keep the title next to the icon */
+.user2-section-header > svg + div, .settings2-section-header > svg + div { margin-right: auto; }
+.user2-section-header > svg, .settings2-section-header > svg { margin-top: 3px; }
+@media (width >= 1200px) { .model2-metric-guide { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

@@ -45,7 +45,7 @@ Recent activity card: `GET /api/activities?range=7d&page_size=4`.
 - `GET /api/forecast/history?horizon=60&range=24h` → forecast vs observed DO at each target time
 
 ### History & Trends
-- `GET /api/history/summary?range=` → records, avg/min/max DO, net change, elevated/critical record counts
+- `GET /api/history/summary?range=` → records, avg/min/max DO, net change, elevated/critical record counts, `risk_counts` per recorded risk state
 - `GET /api/history/series?range=&bucket_minutes=` → bucketed averages of all 7 variables + worst risk (auto bucket ≈ 300 points)
 - `GET /api/history/observations?range=&page=&page_size=&order=desc` → table rows + `recorded_risk_state` + `aeration_recorded`
 - `GET /api/history/export.csv?range=` → CSV download (max 31 days)

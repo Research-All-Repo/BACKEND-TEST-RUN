@@ -73,10 +73,21 @@ router.get('/summary', async (req, res, next) => {
   try {
     const { db } = req.auth;
     const { from, to } = parseRange(req.query, { defaultHours: 24, maxDays: 92 });
-    const [row] = unwrap(await db.rpc('get_history_summary', { p_from: from, p_to: to }));
+    const states = ['NORMAL', 'WATCH', 'WARNING', 'CRITICAL', 'DATA_UNAVAILABLE'];
+    const [[row], counts] = await Promise.all([
+      db.rpc('get_history_summary', { p_from: from, p_to: to }).then(unwrap),
+      Promise.all(states.map(async (st) => {
+        const { count, error } = await db.from('raw_observations')
+          .select('observation_id, risk_assessments!inner(current_risk_state)', { count: 'exact', head: true })
+          .eq('risk_assessments.current_risk_state', st).gte('timestamp_utc', from).lt('timestamp_utc', to);
+        if (error) throw require('../lib/errors').fromSupabase(error);
+        return [st, count || 0];
+      })),
+    ]);
     const s = row || {};
     res.json({
-      data: { ...s, net_do_change: s.first_do !== null && s.last_do !== null && s.first_do !== undefined ? Math.round((s.last_do - s.first_do) * 1000) / 1000 : null },
+      data: { ...s, risk_counts: Object.fromEntries(counts),
+        net_do_change: s.first_do !== null && s.last_do !== null && s.first_do !== undefined ? Math.round((s.last_do - s.first_do) * 1000) / 1000 : null },
       meta: { from, to },
     });
   } catch (err) {

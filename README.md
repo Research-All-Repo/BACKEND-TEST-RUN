@@ -27,7 +27,7 @@ Raspberry Pi edge sync (later)  /  mock edge simulator (now)
 | `supabase/migrations/001_pd10_core_schema.sql` | The 12 PD-1.0 tables (144 attributes, 8 FKs, triggers, `forecast_details`) |
 | `supabase/migrations/002_dashboard_access.sql` | `user_access_profiles`, audit log, RLS, RPCs, views |
 | `src/` | Express app (`app.js`), routes, auth middleware, mock edge |
-| `public/` | Placeholder frontend wired to every endpoint |
+| `public/` | Dashboard frontend (prototype design: `css/aquacast.css` + vanilla JS modules in `js/pages/`), wired to every endpoint |
 | `scripts/` | `seed-mock-data`, `create-admin`, `run-edge-simulator` |
 | `tests/` | Integration tests (19) + unit tests (4) |
 | `docs/API.md` | Endpoint reference and page-by-page field map for the frontend |
