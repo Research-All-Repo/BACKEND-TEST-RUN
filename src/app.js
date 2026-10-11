@@ -8,8 +8,8 @@ const { ApiError, E } = require('./lib/errors');
 const { requireAuth, requireRole } = require('./middleware/auth');
 
 /**
- * Builds the Express app without listening, so the same app can run on
- * Render (src/server.js) or be wrapped as a Vercel function (api/index.js).
+ * Builds the Express app without listening, so the same app can run as a
+ * long-running server (src/server.js: local / Render) or as a Vercel function (api/index.js).
  */
 function createApp({ mockEdge = null } = {}) {
   const app = express();
@@ -34,7 +34,7 @@ function createApp({ mockEdge = null } = {}) {
   app.use(express.json({ limit: '64kb' }));
   app.use(cookieParser());
 
-  // Liveness probe for Render (no auth, no database secrets)
+  // Liveness probe (no auth, no database secrets)
   app.get('/healthz', (_req, res) => res.json({ ok: true, service: 'aquacast-backend', time: new Date().toISOString() }));
 
   // CSRF defence for cookie sessions: state-changing API calls must carry a custom
@@ -57,7 +57,8 @@ function createApp({ mockEdge = null } = {}) {
   app.use('/api/auth', require('./routes/auth'));
 
   // Every route below requires a verified email + ACTIVE profile
-  const authed = requireAuth();
+  // Serverless mock edge: signed-in requests also run a throttled catch-up tick.
+  const authed = mockEdge?.middleware ? [requireAuth(), mockEdge.middleware] : requireAuth();
   const admin = requireRole('ADMIN');
   app.use('/api/live', authed, require('./routes/live'));
   app.use('/api/forecast', authed, require('./routes/forecast'));
@@ -73,8 +74,8 @@ function createApp({ mockEdge = null } = {}) {
 
   app.use('/api', (_req, _res, next) => next(E.notFound('Unknown API route.')));
 
-  // Placeholder frontend (replace with the real frontend build later)
-  app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'], index: 'index.html' }));
+  // Dashboard frontend. On Vercel, public/ is served by the CDN instead and this is unused.
+  if (!config.isVercel) app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'], index: 'index.html' }));
 
   // Error handler: consistent JSON, no stack traces or secrets to the client
   // eslint-disable-next-line no-unused-vars

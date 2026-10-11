@@ -77,9 +77,13 @@ async function pushCycles(db, { from, to, study, models }) {
 }
 
 class MockEdge {
-  constructor({ log = () => {}, db = null } = {}) {
+  constructor({ log = () => {}, db = null, mode = 'background' } = {}) {
     this.db = db || getAdminClient();
     this.log = log;
+    this.mode = mode;
+    // In 'on-request' (serverless) mode there is no shared memory between function
+    // instances, so the offline switch is kept in dashboard_audit_log instead.
+    this.persistOffline = mode === 'on-request';
     this.offline = config.mockEdge.startOffline;
     this.timer = null;
     this.running = false;
@@ -101,14 +105,32 @@ class MockEdge {
     this.timer = null;
   }
 
-  setOffline(v) {
+  async setOffline(v, actorUserId = null) {
     this.offline = !!v;
+    if (this.persistOffline) {
+      check(await this.db.from('dashboard_audit_log').insert({
+        actor_user_id: actorUserId, action: 'MOCK_EDGE_STATE_CHANGED', target_table: 'mock_edge', target_id: 'simulator',
+        details: { offline: this.offline },
+      }), 'save simulator state');
+    }
     this.log(`offline=${this.offline}`);
   }
 
-  status() {
-    return { enabled: true, offline: this.offline, last_tick_at: this.lastTickAt, last_error: this.lastError,
-      cycles_pushed_since_start: this.cyclesPushed, tick_seconds: config.mockEdge.tickSeconds,
+  async refreshOffline() {
+    if (!this.persistOffline) return this.offline;
+    const row = check(await this.db.from('dashboard_audit_log').select('details').eq('action', 'MOCK_EDGE_STATE_CHANGED')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle(), 'read simulator state');
+    this.offline = row ? row.details?.offline === true : config.mockEdge.startOffline;
+    return this.offline;
+  }
+
+  async status() {
+    await this.refreshOffline();
+    const latest = check(await this.db.from('raw_observations').select('timestamp_utc').order('timestamp_utc', { ascending: false })
+      .limit(1).maybeSingle(), 'latest obs');
+    return { enabled: true, mode: this.mode, offline: this.offline, last_tick_at: this.lastTickAt, last_error: this.lastError,
+      cycles_pushed_since_start: this.cyclesPushed, latest_cycle_utc: latest?.timestamp_utc || null,
+      tick_seconds: this.mode === 'on-request' ? config.mockEdge.minIntervalSeconds : config.mockEdge.tickSeconds,
       ack_delay_seconds: config.mockEdge.ackDelaySeconds };
   }
 
@@ -117,7 +139,7 @@ class MockEdge {
     this.running = true;
     try {
       this.lastTickAt = now.toISOString();
-      if (this.offline) return;
+      if (await this.refreshOffline()) return;
       const db = this.db;
       if (!this.ref) {
         this.ref = await ensureReference(db, { deploymentStart: new Date(now.getTime() - config.mockEdge.backfillHours * 3600_000) });
@@ -247,4 +269,26 @@ class MockEdge {
   }
 }
 
-module.exports = { MockEdge, ensureReference, pushCycles, insertBatches, check };
+/**
+ * Serverless mock edge: no timers. Returns Express middleware that runs a throttled
+ * catch-up tick (missing 10-minute cycles + pending command/mode acknowledgements)
+ * on signed-in API requests, so data keeps flowing whenever the dashboard is open.
+ */
+function createOnRequestEdge({ log = () => {} } = {}) {
+  const edge = new MockEdge({ log, mode: 'on-request' });
+  let lastStart = 0;
+  let inflight = null;
+  edge.middleware = async (_req, _res, next) => {
+    try {
+      if (!inflight && Date.now() - lastStart >= config.mockEdge.minIntervalSeconds * 1000) {
+        lastStart = Date.now();
+        inflight = edge.tick().finally(() => { inflight = null; });
+      }
+      if (inflight) await inflight; // finish before responding: serverless instances may freeze afterwards
+    } catch { /* tick() records its own errors; never block the dashboard */ }
+    next();
+  };
+  return edge;
+}
+
+module.exports = { MockEdge, createOnRequestEdge, ensureReference, pushCycles, insertBatches, check };

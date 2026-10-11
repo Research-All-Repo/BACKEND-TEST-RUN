@@ -7,14 +7,15 @@ config.validate();
 
 let mockEdge = null;
 if (config.mockEdge.enabled) {
-  const { MockEdge } = require('./mock/edge-simulator');
-  mockEdge = new MockEdge({ log: (...a) => console.log('[mock-edge]', ...a) });
+  const { MockEdge, createOnRequestEdge } = require('./mock/edge-simulator');
+  const log = (...a) => console.log('[mock-edge]', ...a);
+  mockEdge = config.mockEdge.mode === 'on-request' ? createOnRequestEdge({ log }) : new MockEdge({ log });
 }
 
 const app = createApp({ mockEdge });
 const server = app.listen(config.port, () => {
   console.log(`AquaCast backend listening on :${config.port} (${config.isProduction ? 'production' : 'development'})`);
-  if (mockEdge) mockEdge.start();
+  if (mockEdge && mockEdge.mode === 'background') mockEdge.start();
 });
 
 function shutdown(signal) {

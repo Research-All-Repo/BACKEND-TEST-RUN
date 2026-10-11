@@ -1,4 +1,4 @@
-# AquaCast Backend (Render test deployment)
+# AquaCast Backend (Vercel deployment; Render config kept for testing)
 
 Node/Express backend for the AquaCast dashboard. It provides real sign-in with
 **Supabase Auth**, role/status checks from **`user_access_profiles`**, the API
@@ -10,7 +10,7 @@ Raspberry Pi is connected.
 Browser (placeholder or your groupmate's frontend)
    │  same-origin fetch, httpOnly session cookies, no Supabase keys in the browser
    ▼
-Render web service (this repo)  ── Express API /api/*
+Vercel project (this repo)        ── Express API /api/*
    │  user's own JWT  -> PostgREST (Row Level Security + RPC checks apply)
    │  service-role key -> Auth admin only (ban/unban, invite, sign-out) + mock edge
    ▼
@@ -45,11 +45,11 @@ Raspberry Pi edge sync (later)  /  mock edge simulator (now)
 2. Run `supabase/migrations/001_pd10_core_schema.sql`, then `002_dashboard_access.sql`. Both are safe to re-run.
 3. **Authentication → Sign In / Providers → Email**: keep **Confirm email** ON. That is what makes "verified account" work.
 4. **Authentication → URL Configuration**
-   - Site URL: your Render URL, e.g. `https://aquacast-backend.onrender.com`
+   - Site URL: your site URL, e.g. `https://aquacast.vercel.app` (see section 9)
    - Redirect URLs: add `https://aquacast-backend.onrender.com/set-password.html` and `https://aquacast-backend.onrender.com/?verified=1`
      (add the `http://localhost:3000/...` versions too for local testing).
 5. **Project Settings → API**: copy the Project URL, the **anon/publishable** key and the **service_role/secret** key.
-   The secret key only ever goes into Render environment variables or your local `.env`.
+   The secret key only ever goes into Vercel (or Render) environment variables or your local `.env`.
 6. Supabase's built-in email sender is rate-limited to a few emails per hour. For real use (sign-up
    verification, invites, password resets) set up custom SMTP under **Authentication → Emails**.
 
@@ -66,7 +66,7 @@ npm run dev                   # http://localhost:3000
 With `MOCK_EDGE_ENABLED=true` the server also acts as the Raspberry Pi: a new 10-minute cycle appears on
 schedule and aerator requests are acknowledged after `MOCK_EDGE_ACK_DELAY_SECONDS`.
 
-## 3. Deploy to Render
+## 3. Deploy to Render (test hosting; see section 9 for Vercel)
 
 1. Push this folder to a GitHub repository (`.env` is git-ignored).
 2. Render → **New + → Blueprint** → select the repo (uses `render.yaml`), or **New Web Service** with
@@ -153,11 +153,26 @@ browser) must do what `src/mock/edge-simulator.js` does: insert cycles in FK ord
 applied mode, write the outcome, acknowledge mode revisions, and update `output_reported_at_utc` as a
 heartbeat. The database triggers will reject anything that breaks PD-1.0 rules.
 
-## 9. Moving to Vercel later
+## 9. Hosting on Vercel (final)
 
-`api/index.js` exports the same Express app and `vercel.json` routes `/api/*` to it; `public/` is
-served statically. Set the same env vars in Vercel. Run the mock edge separately (`npm run simulate`)
-because serverless functions cannot keep a background timer.
+- `api/index.js` exports the same Express app as one Vercel Function; `vercel.json` rewrites `/api/*` and
+  `/healthz` to it, serves `public/` from Vercel's CDN with the same security headers, pins the function
+  to `sin1` (Singapore — change it to the region closest to your Supabase project) and excludes non-runtime
+  folders from the bundle.
+- Environment variables (Vercel → Project → Settings → Environment Variables): `SUPABASE_URL`,
+  `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (mark it **Sensitive**), `PUBLIC_SITE_URL`
+  (e.g. `https://aquacast.vercel.app`), `MOCK_EDGE_ENABLED`, `MOCK_EDGE_BACKFILL_HOURS`,
+  `MOCK_EDGE_ACK_DELAY_SECONDS`, `MOCK_EDGE_MIN_INTERVAL_SECONDS`. `NODE_ENV` and secure cookies are automatic.
+- Supabase → Authentication → URL Configuration: set **Site URL** to the Vercel URL and add
+  `https://<your-domain>/**` to **Redirect URLs** (email confirmation, password reset and invitations).
+- Serverless functions cannot keep a background timer, so on Vercel the mock edge runs in
+  **on-request** mode (`MOCK_EDGE_MODE=on-request`, automatic on Vercel): signed-in API requests run a
+  throttled catch-up tick that inserts any missing 10-minute cycles (up to `MOCK_EDGE_BACKFILL_HOURS`)
+  and acknowledges pending aerator commands and mode changes. The simulator's offline switch is stored
+  in `dashboard_audit_log` (`MOCK_EDGE_STATE_CHANGED`) because function instances share no memory.
+  For continuous data while nobody has the dashboard open, run `npm run simulate` on any always-on
+  machine, or rely on the real Raspberry Pi.
+- The login rate limiter is in-memory per function instance; Supabase Auth's own rate limits still apply.
 
 ## 10. Decisions to review (not specified in LS-1.0 / PD-1.0)
 

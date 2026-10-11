@@ -1,6 +1,6 @@
 'use strict';
 // Central configuration. Every secret comes from environment variables
-// (Render dashboard -> Environment). Nothing here is ever sent to the browser.
+// (Vercel/Render dashboard -> Environment Variables). Nothing here is ever sent to the browser.
 
 function num(name, fallback) {
   const raw = process.env[name];
@@ -29,7 +29,11 @@ const config = {
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
 
   // Public URL of this deployment (used for password-reset and invite email links)
-  publicSiteUrl: (process.env.PUBLIC_SITE_URL || `http://localhost:${num('PORT', 3000)}`).replace(/\/+$/, ''),
+  // On Vercel it falls back to the production domain Vercel exposes at runtime.
+  publicSiteUrl: (process.env.PUBLIC_SITE_URL
+    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
+    || `http://localhost:${num('PORT', 3000)}`).replace(/\/+$/, ''),
+  isVercel: !!process.env.VERCEL,
 
   cookieSecure: bool('COOKIE_SECURE', isProduction),
   rememberMeDays: num('REMEMBER_ME_DAYS', 30),
@@ -48,6 +52,10 @@ const config = {
     backfillHours: num('MOCK_EDGE_BACKFILL_HOURS', 24),
     ackDelaySeconds: num('MOCK_EDGE_ACK_DELAY_SECONDS', 15),
     startOffline: bool('MOCK_EDGE_START_OFFLINE', false),
+    // 'background' = timer inside a long-running server (Render / local).
+    // 'on-request' = no timers; a throttled catch-up tick runs on signed-in API requests (Vercel / serverless).
+    mode: process.env.MOCK_EDGE_MODE || (process.env.VERCEL ? 'on-request' : 'background'),
+    minIntervalSeconds: num('MOCK_EDGE_MIN_INTERVAL_SECONDS', 20),
   },
 };
 

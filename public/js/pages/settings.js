@@ -97,8 +97,8 @@ export default async function settings(root, ctx) {
         <div class="settings2-section-header">${ic('flask-conical', 18)}<div><span class="settings2-eyebrow danger">TEST TOOLS</span><h3>Mock Edge Simulator</h3>
           <p>Only available while MOCK_EDGE_ENABLED=true. Use it to demonstrate live, delayed and offline states. Turn it off for real deployments.</p></div><span class="settings2-status-badge prototype">TEST DATA</span></div>
         <div class="settings2-storage-grid">
-          <article><span>Simulated edge</span><strong>${dev.offline ? 'Offline' : 'Online'}</strong><p>Pushes one cycle every ${dev.tick_seconds} s</p></article>
-          <article><span>Last cycle</span><strong>${dev.last_tick_at ? ago(dev.last_tick_at) : 'Not yet'}</strong><p>${dev.cycles_pushed_since_start} cycles since server start</p></article>
+          <article><span>Simulated edge</span><strong>${dev.offline ? 'Offline' : 'Online'}</strong><p>${dev.mode === 'on-request' ? `Serverless mode: catches up missing cycles while the dashboard is open (checks every ${dev.tick_seconds} s)` : `Checks for a new cycle every ${dev.tick_seconds} s`}</p></article>
+          <article><span>Latest cycle</span><strong>${dev.latest_cycle_utc ? ago(dev.latest_cycle_utc) : 'None yet'}</strong><p>${dev.latest_cycle_utc ? fmtDateTime(dev.latest_cycle_utc) : 'No observations stored'}</p></article>
           <article><span>Command ack delay</span><strong>${dev.ack_delay_seconds} s</strong><p>${dev.last_error ? `Last error: ${dev.last_error}` : 'No errors'}</p></article>
         </div>
         <div class="settings2-reset-row"><div class="settings2-reset-copy"><div class="settings2-reset-icon">${ic(dev.offline ? 'wifi' : 'wifi-off', 18)}</div>

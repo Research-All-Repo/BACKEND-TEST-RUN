@@ -10,6 +10,13 @@ const CATS = {
 };
 const RANGES = { '24h': 'Past 24 hours', '7d': 'Past 7 days', '30d': 'Past 30 days', '90d': 'Past 90 days' };
 
+function describe(a) {
+  if (a.event_type === 'MOCK_EDGE_STATE_CHANGED') {
+    try { return `Simulated edge device set ${JSON.parse(a.details).offline ? 'OFFLINE' : 'ONLINE'} (test data only).`; } catch { /* fall through */ }
+  }
+  return a.details || '—';
+}
+
 export default async function activities(root, ctx) {
   const st = { category: '', q: '', range: '7d', page: 1, pageSize: 15 };
   root.innerHTML = html`<div class="activity2-page">
@@ -61,7 +68,7 @@ export default async function activities(root, ctx) {
           <td><span class="activity2-source-badge ${sourceKind(a)}">${a.source || '--'}</span></td>
           <td><span class="activity2-user">${ic(sourceKind(a) === 'system' ? 'cpu' : 'user', 14)}<span>${a.actor_name || (sourceKind(a) === 'system' ? 'AquaCast system' : '--')}</span></span></td>
           <td><span class="activity2-station" title="${ctx.station()}">${ctx.station()}</span></td>
-          <td class="activity2-description">${a.details || '—'}</td></tr>`))
+          <td class="activity2-description">${describe(a)}</td></tr>`))
           : raw('<tr><td colspan="6" class="activity2-empty-table">No activity matches these filters.</td></tr>')}</tbody></table></div>
         ${raw(paginationHtml('activity2', { page: st.page, pageSize: st.pageSize, total: r.meta.total, noun: 'activity records' }))}`;
       wirePagination(box, (c) => { Object.assign(st, c); loadTable(); });
