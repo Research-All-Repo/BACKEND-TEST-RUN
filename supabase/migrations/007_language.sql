@@ -1,6 +1,6 @@
 -- =====================================================================
 -- AquaCast 007: language of each device's phone notifications (English / Filipino)
--- Each registered phone/browser remembers the language chosen in AquaCast (bell -> Language),
+-- Each registered phone/browser remembers the language chosen in AquaCast (profile -> This device -> Language),
 -- so Warning / Critical notifications arrive in that language.
 -- Run once in Supabase -> SQL Editor (after 001-006). Safe to re-run.
 -- =====================================================================

@@ -314,6 +314,29 @@ test('research data export: admins get CSV per dataset, staff are refused', asyn
   assert.equal(info.status, 200, 'privacy info is public');
 });
 
+test('my account: edit own profile (not email/role) and change password', async () => {
+  const before = (await staffC.get('/api/auth/session')).json.data.profile;
+  const r = await staffC.patch('/api/auth/me', { full_name: 'Staff Renamed', organization: 'BFAR TOS Zambales', position: 'Pond Technician', email: 'hacker@x.test', role: 'ADMIN' });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.data.full_name, 'Staff Renamed');
+  assert.equal(r.json.data.email, before.email, 'email cannot be changed');
+  assert.equal(r.json.data.role, 'BFAR_STAFF', 'role cannot be changed');
+  assert.equal((await staffC.patch('/api/auth/me', { full_name: '', organization: 'x' })).status, 400);
+  // password: wrong current, too short, then a real change (this session stays valid), then back
+  assert.equal((await staffC.post('/api/auth/change-password', { current_password: 'wrong-password-1', new_password: 'NewStaffPass#2026' })).status, 400);
+  assert.equal((await staffC.post('/api/auth/change-password', { current_password: staffPw, new_password: 'short' })).status, 400);
+  const ch = await staffC.post('/api/auth/change-password', { current_password: staffPw, new_password: 'NewStaffPass#2026' });
+  assert.equal(ch.status, 200, JSON.stringify(ch.json));
+  assert.equal((await staffC.get('/api/auth/session')).status, 200, 'this device stays signed in');
+  assert.equal((await new Client().login(staffEmail, staffPw)).status, 401, 'old password no longer works');
+  assert.equal((await new Client().login(staffEmail, 'NewStaffPass#2026')).status, 200);
+  assert.equal((await staffC.post('/api/auth/change-password', { current_password: 'NewStaffPass#2026', new_password: staffPw })).status, 200);
+  await staffC.patch('/api/auth/me', { full_name: before.full_name, organization: before.organization, position: before.position || '' });
+  // a password-reset link must not ask for the privacy consent
+  const sp = await new Client().post('/api/auth/set-password', { access_token: 'not-a-real-token', password: 'LongEnough#2026' });
+  assert.notEqual(sp.json?.error?.code, 'VALIDATION_ERROR', JSON.stringify(sp.json));
+});
+
 test('push hooks refuse calls without the shared secret', async () => {
   for (const path of ['/api/push/risk-hook', '/api/push/stale-check']) {
     const r = await new Client().call('POST', path, {}, { 'x-aquacast-hook-secret': 'wrong' });

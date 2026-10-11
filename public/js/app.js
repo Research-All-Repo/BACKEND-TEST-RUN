@@ -1,10 +1,10 @@
 // AquaCast dashboard shell: sign-in screens, sidebar + header, routing, global polling,
 // operator advisory banner, critical takeover, profile and logout dialogs.
 // All data comes from the backend API (see docs/API.md); no Supabase keys in the browser.
-import { get, post, onAuthProblem } from './api.js';
+import { get, post, patch, onAuthProblem } from './api.js';
 import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, riskLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
 import { t, lang } from './i18n.js';
-import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush, turnOnAlerts, isStandaloneApp, currentPushState } from './alerts.js';
+import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush, turnOnAlerts, isStandaloneApp, currentPushState, deviceSettingsHtml, wireDeviceSettings } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
 // Installed home-screen app or a phone/tablet: stay signed in by default (persistent cookies,
@@ -618,7 +618,7 @@ function startPolling() {
 }
 function stopPolling() { if (state.poll) clearInterval(state.poll); if (state.pulse) clearInterval(state.pulse); state.poll = null; state.pulse = null; }
 window.addEventListener('online', refreshLive);
-// language changed (bell → Language): redraw the page and banners in place
+// language changed (profile → This device → Language): redraw the page and banners in place
 window.addEventListener('aq-lang', () => {
   if (!state.profile) return;
   renderCalibration();
@@ -636,21 +636,93 @@ window.addEventListener('hashchange', () => setTimeout(renderAdvisory, 0));
 // =====================================================================
 function openProfile() {
   const p = state.profile;
+  const field = (name, label, value, opts = {}) => raw(html`<label class="aq-pf-field"><span>${label}${opts.optional ? raw(' <em>(optional)</em>') : ''}</span>
+    <input name="${name}" value="${value || ''}" maxlength="${opts.max || 120}" ${opts.required ? 'required' : ''} autocomplete="${opts.ac || 'off'}"></label>`);
   openModal({
-    overlayClass: 'account-modal-overlay', modalClass: 'account-profile-modal',
-    content: html`<div class="account-modal-header"><div class="account-modal-heading"><div class="account-modal-avatar">${initials(p.full_name || p.email)}</div>
-        <div><h3>User Profile</h3><p>Current authenticated AquaCast session</p></div></div>
+    overlayClass: 'account-modal-overlay', modalClass: 'account-profile-modal aq-profile2',
+    content: html`<div class="account-modal-header"><div class="account-modal-heading"><div class="account-modal-avatar" data-pf-initials>${initials(p.full_name || p.email)}</div>
+        <div><h3>My Account</h3><p>Your details, password and this device's preferences</p></div></div>
         <button type="button" class="account-modal-close" data-close aria-label="Close">${ic('x', 18)}</button></div>
-      <div class="account-profile-name"><strong>${p.full_name || p.email}</strong><span class="account-role-badge ${p.role === 'ADMIN' ? 'administrator' : 'operator'}">${roleLabel(p.role)}</span></div>
-      <div class="account-profile-details">
-        ${[['briefcase-business', 'Position', p.position || 'Not specified'], ['id-card', 'User ID', p.user_id.slice(0, 8).toUpperCase(), true], ['mail', 'Email', p.email, true],
-          ['building-complex', 'Organization', p.organization || 'Not specified'], ['badge-check', 'Role', roleLabel(p.role)], ['clock-3', 'Last sign-in', p.last_login_at ? ago(p.last_login_at) : 'This session']]
+      <div class="account-profile-name"><strong data-pf-name>${p.full_name || p.email}</strong><span class="account-role-badge ${p.role === 'ADMIN' ? 'administrator' : 'operator'}">${roleLabel(p.role)}</span></div>
+
+      <section class="aq-pf-section"><h4>${ic('user', 16)}Personal information</h4>
+        <form class="aq-pf-form" id="pf-form" novalidate>
+          ${field('full_name', 'Full name', p.full_name, { required: true, ac: 'name' })}
+          ${field('position', 'Position', p.position, { optional: true, ac: 'organization-title' })}
+          ${field('organization', 'Organization / assignment', p.organization, { required: true, max: 160, ac: 'organization' })}
+          <label class="aq-pf-field aq-pf-locked"><span>Email address ${ic('lock', 12)}</span><input value="${p.email}" disabled>
+            <small>Your email is your sign-in and cannot be changed here. Ask an Administrator if it is wrong.</small></label>
+          <div class="aq-pf-actions"><button type="submit" class="aq-btn primary" id="pf-save" disabled>Save changes</button></div>
+        </form></section>
+
+      <section class="aq-pf-section"><h4>${ic('key-round', 16)}Password</h4>
+        <div id="pw-closed"><p class="aq-pf-note">Use at least 10 characters. Changing it signs out your other devices.</p>
+          <button type="button" class="aq-btn" id="pw-open">${ic('key-round', 15)}Change password</button></div>
+        <form class="aq-pf-form" id="pw-form" novalidate hidden>
+          <label class="aq-pf-field"><span>Current password</span><input type="password" name="current_password" autocomplete="current-password" required></label>
+          <label class="aq-pf-field"><span>New password</span><input type="password" name="new_password" autocomplete="new-password" minlength="10" required placeholder="At least 10 characters"></label>
+          <label class="aq-pf-field"><span>Confirm new password</span><input type="password" name="confirm" autocomplete="new-password" minlength="10" required></label>
+          <label class="aq-switch aq-pf-show"><input type="checkbox" id="pw-show"><span>Show passwords</span></label>
+          <div class="aq-pf-actions"><button type="button" class="aq-btn" id="pw-cancel">Cancel</button><button type="submit" class="aq-btn primary">Change password</button></div>
+        </form></section>
+
+      <div class="aq-settings-body aq-pf-device"><h4 class="aq-pf-device-title">${ic('smartphone', 16)}This device</h4>${raw(deviceSettingsHtml())}</div>
+
+      <div class="account-profile-details aq-pf-meta">
+        ${[['id-card', 'User ID', p.user_id.slice(0, 8).toUpperCase(), true], ['badge-check', 'Role', roleLabel(p.role)], ['clock-3', 'Last sign-in', p.last_login_at ? ago(p.last_login_at) : 'This session']]
           .map(([ico, label, val, mono]) => raw(html`<div class="account-profile-row"><div class="account-profile-label">${ic(ico, 15)}<span>${label}</span></div><strong class="${mono ? 'account-mono' : ''}">${val}</strong></div>`))}
       </div>
-      <div class="account-profile-note">${ic('shield-check', 16)}<p>Credentials are managed by Supabase Auth. Role and access status are managed by Administrators in the User Directory.</p></div>
-      <div class="account-modal-actions"><button type="button" class="account-secondary-button" data-close>Close Profile</button>
+      <div class="account-profile-note">${ic('shield-check', 16)}<p>Role and access are managed by Administrators in the User Directory. <a href="/privacy.html" target="_blank" rel="noopener">Privacy Notice</a></p></div>
+      <div class="account-modal-actions"><button type="button" class="account-secondary-button" data-close>Close</button>
         <button type="button" class="account-logout-action" data-logout>${ic('log-out', 16)}Log Out</button></div>`,
-    onMount: (m, close) => m.querySelector('[data-logout]').addEventListener('click', () => { close(); openLogout(); }),
+    onMount: (m, close) => {
+      m.querySelector('[data-logout]').addEventListener('click', () => { close(); openLogout(); });
+      wireDeviceSettings(m, { close });
+      // personal information
+      const form = m.querySelector('#pf-form');
+      const saveBtn = m.querySelector('#pf-save');
+      const current = () => ({ full_name: form.full_name.value.trim(), position: form.position.value.trim(), organization: form.organization.value.trim() });
+      const dirty = () => { const c = current(); return c.full_name !== (p.full_name || '') || c.position !== (p.position || '') || c.organization !== (p.organization || ''); };
+      form.addEventListener('input', () => { saveBtn.disabled = !dirty(); });
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const c = current();
+        if (!c.full_name || !c.organization) { toast('Full name and organization are required.', 'error'); return; }
+        busy(saveBtn, async () => {
+          try {
+            const r = await patch('/api/auth/me', c);
+            Object.assign(state.profile, r.data);
+            Object.assign(p, r.data);
+            m.querySelector('[data-pf-name]').textContent = p.full_name;
+            m.querySelector('[data-pf-initials]').textContent = initials(p.full_name);
+            document.querySelectorAll('.sidebar-user-info strong').forEach((el) => { el.textContent = p.full_name; });
+            document.querySelectorAll('.sidebar-user-avatar').forEach((el) => { el.textContent = initials(p.full_name); });
+            toast(r.meta?.message || 'Saved.', 'success');
+          } catch (err) { toast(err.message, 'error'); }
+          saveBtn.disabled = !dirty();
+        });
+      });
+      // password
+      const pw = m.querySelector('#pw-form'); const closed = m.querySelector('#pw-closed');
+      const showPw = (open) => { pw.hidden = !open; closed.hidden = open; if (open) pw.current_password.focus(); else pw.reset(); };
+      m.querySelector('#pw-open').addEventListener('click', () => showPw(true));
+      m.querySelector('#pw-cancel').addEventListener('click', () => showPw(false));
+      m.querySelector('#pw-show').addEventListener('change', (e) => pw.querySelectorAll('input[type=password], input[data-pw]').forEach((i) => { i.dataset.pw = '1'; i.type = e.target.checked ? 'text' : 'password'; }));
+      pw.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const f = { current: pw.current_password.value, next: pw.new_password.value, confirm: pw.confirm.value };
+        if (!f.current) { toast('Enter your current password.', 'error'); return; }
+        if (f.next.length < 10) { toast('The new password must be at least 10 characters.', 'error'); return; }
+        if (f.next !== f.confirm) { toast('The new passwords do not match.', 'error'); return; }
+        busy(e.submitter || pw.querySelector('button[type=submit]'), async () => {
+          try {
+            const r = await post('/api/auth/change-password', { current_password: f.current, new_password: f.next });
+            toast(r.meta?.message || 'Password changed.', 'success');
+            showPw(false);
+          } catch (err) { toast(err.message, 'error'); }
+        });
+      });
+    },
   });
 }
 

@@ -140,6 +140,68 @@ router.post('/request-access', rateLimit({ windowMs: 60 * 60_000, max: 5, key: (
     }
   });
 
+/**
+ * PATCH /api/auth/me { full_name, organization, position } - edit my own profile.
+ * Email, role and access status cannot be changed here (email is the sign-in identity;
+ * role and status are decided by Administrators).
+ */
+router.patch('/me', requireAuth(), async (req, res, next) => {
+  try {
+    const { user, profile } = req.auth;
+    const fullName = sanitizeText(req.body?.full_name, 120);
+    const organization = sanitizeText(req.body?.organization, 160);
+    const position = sanitizeText(req.body?.position, 120);
+    if (!fullName) throw E.validation('Full name is required.');
+    if (!organization) throw E.validation('Organization / assignment is required.');
+    const changes = { full_name: fullName, organization, position };
+    const changed = Object.keys(changes).filter((k) => (profile[k] || null) !== (changes[k] || null));
+    if (!changed.length) return res.json({ data: publicProfile(profile), meta: { message: 'Nothing to change.' } });
+    const admin = getAdminClient();
+    const { data, error } = await admin.from('user_access_profiles').update({ ...changes, updated_at: new Date().toISOString() })
+      .eq('user_id', user.id).select('*').single();
+    if (error) throw E.validation(error.message);
+    await admin.auth.admin.updateUserById(user.id, { user_metadata: { ...(user.user_metadata || {}), full_name: fullName, organization, position } }).catch(() => {});
+    await admin.from('dashboard_audit_log').insert({ actor_user_id: user.id, action: 'PROFILE_UPDATED', target_table: 'user_access_profiles', target_id: user.id,
+      details: { fields: changed } }).then(() => null, () => null);
+    res.json({ data: publicProfile(data), meta: { message: 'Your profile was updated.' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/auth/change-password { current_password, new_password }
+ * Checks the current password first, then sets the new one and signs out every OTHER device
+ * (this one stays signed in).
+ */
+router.post('/change-password', requireAuth(), rateLimit({ windowMs: 15 * 60_000, max: 5, key: (req) => `chpw:${req.auth.user.id}` }),
+  async (req, res, next) => {
+    try {
+      const { user } = req.auth;
+      const current = String(req.body?.current_password || '');
+      const next_ = String(req.body?.new_password || '');
+      if (!current) throw E.validation('Enter your current password.');
+      if (next_.length < 10) throw E.validation('The new password must be at least 10 characters.');
+      if (next_ === current) throw E.validation('The new password must be different from the current one.');
+      const { data: check, error: wrong } = await createAuthClient().auth.signInWithPassword({ email: user.email, password: current });
+      if (wrong) {
+        if (isNetworkError(wrong) || wrong.status >= 500) throw E.supabaseUnavailable();
+        throw E.validation('Your current password is not correct.');
+      }
+      const admin = getAdminClient();
+      if (check?.session) await admin.auth.admin.signOut(check.session.access_token, 'local').catch(() => {}); // discard the check session
+      const { error: upd } = await admin.auth.admin.updateUserById(user.id, { password: next_ });
+      if (upd) throw E.validation(upd.message);
+      const { accessToken } = readSessionCookies(req);
+      if (accessToken) await admin.auth.admin.signOut(accessToken, 'others').catch(() => {});
+      await admin.from('dashboard_audit_log').insert({ actor_user_id: user.id, action: 'PASSWORD_CHANGED', target_table: 'auth.users', target_id: user.id,
+        details: { other_devices_signed_out: true } }).then(() => null, () => null);
+      res.json({ data: { changed: true }, meta: { message: 'Password changed. Other devices were signed out; this one stays signed in.' } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
 /** GET /api/auth/privacy-info - public: who to contact about personal data, and the notice version. */
 router.get('/privacy-info', (_req, res) => {
   res.json({ data: { contact: config.privacyContact || null, version: PRIVACY_VERSION } });
@@ -173,8 +235,6 @@ router.post('/set-password', rateLimit({ windowMs: 15 * 60_000, max: 10, key: (r
       const password = String(req.body?.password || '');
       if (!token) throw E.validation('The link is missing its token. Open the link from your email again.');
       if (password.length < 10) throw E.validation('Password must be at least 10 characters.');
-      const consent = req.body?.privacy_consent === true || req.body?.privacy_consent === 'on' || req.body?.privacy_consent === 'true';
-      if (!consent) throw E.validation('Please read and accept the Privacy Notice to request access.');
       const { data, error } = await createAuthClient().auth.getUser(token);
       if (error || !data?.user) throw E.sessionExpired();
       const { error: upd } = await getAdminClient().auth.admin.updateUserById(data.user.id, { password });

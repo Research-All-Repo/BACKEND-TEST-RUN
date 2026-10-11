@@ -1,5 +1,5 @@
 // Language for the operator-facing parts of AquaCast: Live Status, the Operator Decision Guide,
-// alert screens and notifications, and the User Guide. Chosen per device (bell → Language).
+// alert screens and notifications, and the User Guide. Chosen per device (profile → This device → Language).
 // Technical words operators already use (DO, aerator, reading, sensor, probe) stay in English.
 
 const KEY = 'aq-lang';

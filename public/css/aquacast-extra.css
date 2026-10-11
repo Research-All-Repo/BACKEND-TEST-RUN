@@ -795,3 +795,25 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
   .hg-section, .hg-head { break-inside: avoid; box-shadow: none !important; border: 1px solid #ddd !important; }
   body { background: #fff !important; }
 }
+
+/* ---------- My Account (profile) dialog ---------- */
+.account-profile-modal.aq-profile2 { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; }
+.aq-pf-section { margin-top: 14px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 14px; background: #f8fafc; }
+.aq-pf-section h4, .aq-pf-device-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #0f172a; }
+.aq-pf-section h4 svg, .aq-pf-device-title svg { color: #0f766e; }
+.aq-pf-form { display: grid; gap: 10px; }
+.aq-pf-field { display: grid; gap: 5px; font-size: 12.5px; font-weight: 700; color: #334155; }
+.aq-pf-field em { font-style: normal; font-weight: 600; color: #64748b; }
+.aq-pf-field input { font: inherit; font-size: 15px; font-weight: 600; padding: 10px 12px; border-radius: 11px; border: 1px solid #cbd5e1; background: #fff; color: #0f172a; width: 100%; min-width: 0; }
+.aq-pf-field input:focus-visible { outline: none; border-color: #0d9488; box-shadow: var(--ring, 0 0 0 3px #14b8a633); }
+.aq-pf-locked span { display: inline-flex; align-items: center; gap: 5px; }
+.aq-pf-locked input { background: #f1f5f9; color: #475569; cursor: not-allowed; }
+.aq-pf-field small { font-size: 12px; font-weight: 500; color: #64748b; line-height: 1.4; }
+.aq-pf-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.aq-pf-note { margin: 0 0 10px; font-size: 13px; color: #475569; }
+.aq-pf-show { font-size: 13px; }
+.aq-pf-device { margin-top: 14px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 14px; }
+.aq-pf-meta { margin-top: 14px; }
+.account-profile-note a { color: #0f766e; font-weight: 700; }
+@media (width <= 520px) { .aq-pf-actions .aq-btn { flex: 1; justify-content: center; } }
+.aq-profile2 [hidden] { display: none !important; }

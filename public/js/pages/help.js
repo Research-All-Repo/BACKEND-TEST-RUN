@@ -1,4 +1,4 @@
-// User Guide: how to use AquaCast day to day, in English or Filipino (bell → Language).
+// User Guide: how to use AquaCast day to day, in English or Filipino (profile → This device → Language).
 // Printable (Print / Save as PDF) so it can be handed to operators on paper.
 import { html, raw, ic } from '../ui.js';
 import { lang } from '../i18n.js';
@@ -13,7 +13,7 @@ const EN = {
     S('start', 'log-in', 'Getting started', `
       <p><b>Sign in</b> with the email and password of your approved account. New users tap <b>Request Access</b>, verify their email, and wait for an Administrator to approve them.</p>
       <p><b>Roles.</b> <i>Staff</i> can view everything, record activities, acknowledge alerts and request aeration. <i>Administrators</i> can also approve users, change system settings and see diagnostics.</p>
-      <p>The same account can be open on your phone and computer at the same time.</p>`),
+      <p>The same account can be open on your phone and computer at the same time. Tap your name (bottom of the menu) to edit your details, change your password, and choose the language, theme or app install for this device.</p>`),
     S('alerts-on', 'bell-ring', 'Turn on phone alerts (do this first)', `
       <p>Alerts reach your phone even when AquaCast is closed or the screen is off, but only after you turn them on <b>on each device</b>.</p>
       <ol>
@@ -77,7 +77,7 @@ const FIL = {
     S('start', 'log-in', 'Pagsisimula', `
       <p><b>Mag-sign in</b> gamit ang email at password ng aprubadong account. Ang bagong user ay pipindot ng <b>Request Access</b>, iko-confirm ang email, at hihintaying aprubahan ng Administrator.</p>
       <p><b>Mga tungkulin.</b> Ang <i>Staff</i> ay nakakakita ng lahat, nakapagtatala ng gawain, nakapag-a-acknowledge ng alerto at nakahihiling ng aeration. Ang <i>Administrator</i> ay nakapag-aapruba rin ng user, nakapagbabago ng settings at nakakakita ng diagnostics.</p>
-      <p>Puwedeng bukas ang iisang account sa phone at computer nang sabay.</p>`),
+      <p>Puwedeng bukas ang iisang account sa phone at computer nang sabay. Pindutin ang pangalan mo (ibaba ng menu) para baguhin ang detalye mo, palitan ang password, at piliin ang wika, tema o pag-install ng app sa device na ito.</p>`),
     S('alerts-on', 'bell-ring', 'Buksan ang alerto sa phone (unahin ito)', `
       <p>Natatanggap ang alerto kahit sarado ang AquaCast o patay ang screen, pero kailangan muna itong buksan <b>sa bawat device</b>.</p>
       <ol>

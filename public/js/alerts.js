@@ -271,9 +271,8 @@ export async function unsubscribePush() {
 }
 
 // ---------------- "Alerts & app" dialog ----------------
-export function openAlertSettings() {
-  const perm = notifySupported() ? Notification.permission : 'unsupported';
-  const permText = { granted: 'Allowed on this device', denied: 'Blocked in this browser’s site settings', default: 'Not enabled yet', unsupported: isIos() && !isStandalone() ? 'Add AquaCast to your Home Screen first (iPhone needs this for notifications)' : 'Not supported by this browser' }[perm];
+// ---------- device preferences (shown in the profile dialog) ----------
+export function deviceSettingsHtml() {
   const installHtml = isStandalone()
     ? '<p class="aq-settings-ok">AquaCast is installed and running as an app on this device.</p>'
     : isIos()
@@ -281,10 +280,49 @@ export function openAlertSettings() {
       : installEvent
         ? '<button type="button" class="aq-btn primary" data-act="install">Install AquaCast app</button>'
         : '<ol class="aq-steps"><li>Open this site in <b>Chrome</b> (Android) or Chrome/Edge (computer).</li><li>Open the browser menu <b>⋮</b>.</li><li>Choose <b>Add to Home screen</b> or <b>Install app</b>.</li></ol>';
+  return html`<section><h4>${ic('text', 16)}${tr('language')} / Wika</h4>
+      <div class="aq-zoom-presets aq-theme-choice" role="group" aria-label="${tr('language')}">${Object.entries(LANGS).map(([k, v]) => raw(`<button type="button" data-lang-choice="${k}" class="${lang() === k ? 'active' : ''}" aria-pressed="${lang() === k}">${v}</button>`))}</div>
+      <p class="aq-settings-note" data-lang-note>${tr('languageNote')}</p></section>
+    <section><h4>${ic('moon', 16)}Appearance</h4>
+      <div class="aq-zoom-presets aq-theme-choice" role="group" aria-label="Colour theme">${['auto', 'light', 'dark'].map((t) => raw(`<button type="button" data-theme-choice="${t}" class="${(window.aqTheme?.get() || 'auto') === t ? 'active' : ''}" aria-pressed="${(window.aqTheme?.get() || 'auto') === t}">${{ auto: 'Auto', light: 'Light', dark: 'Dark' }[t]}</button>`))}</div>
+      <p class="aq-settings-note">Auto follows this device's light / dark setting. Dark is easier on the eyes for night checks.</p></section>
+    <section><h4>${ic('smartphone', 16)}Home screen app</h4>${raw(installHtml)}
+      <p class="aq-settings-note">On iPhone, phone alerts only work from the Home Screen app.</p></section>`;
+}
+
+export function wireDeviceSettings(m, { close } = {}) {
+  const press = (sel, b) => m.querySelectorAll(sel).forEach((x) => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
+  m.querySelectorAll('[data-lang-choice]').forEach((b) => b.addEventListener('click', async () => {
+    if (b.dataset.langChoice === lang()) return;
+    setLang(b.dataset.langChoice);
+    press('[data-lang-choice]', b);
+    m.querySelectorAll('[data-lang-note]').forEach((n) => { n.textContent = tr('languageNote'); });
+    try { // phone notifications follow the same language
+      const sub = await (await navigator.serviceWorker?.ready)?.pushManager?.getSubscription();
+      if (sub) await post('/api/push/language', { endpoint: sub.endpoint, lang: lang() });
+    } catch { /* notifications keep the previous language until the next registration */ }
+    toast(lang() === 'fil' ? 'Filipino na ang wika sa device na ito.' : 'Language set to English on this device.', 'success');
+  }));
+  m.querySelectorAll('[data-theme-choice]').forEach((b) => b.addEventListener('click', () => {
+    window.aqTheme?.set(b.dataset.themeChoice);
+    press('[data-theme-choice]', b);
+    window.dispatchEvent(new Event('resize')); // charts redraw with the new colours
+  }));
+  m.querySelector('[data-act=install]')?.addEventListener('click', async () => {
+    if (!installEvent) return;
+    installEvent.prompt();
+    await installEvent.userChoice.catch(() => null);
+    installEvent = null; close?.();
+  });
+}
+
+export function openAlertSettings() {
+  const perm = notifySupported() ? Notification.permission : 'unsupported';
+  const permText = { granted: 'Allowed on this device', denied: 'Blocked in this browser’s site settings', default: 'Not enabled yet', unsupported: isIos() && !isStandalone() ? 'Add AquaCast to your Home Screen first (iPhone needs this for notifications)' : 'Not supported by this browser' }[perm];
   openModal({
     overlayClass: 'user2-modal-overlay', modalClass: 'user2-modal aq-alert-settings',
-    content: html`<div class="user2-modal-header"><div><span>THIS DEVICE</span><h3>Alerts &amp; App</h3>
-        <p>How this phone or computer warns you when dissolved oxygen reaches Warning or Critical.</p></div>
+    content: html`<div class="user2-modal-header"><div><span>THIS DEVICE</span><h3>Alerts &amp; Notifications</h3>
+        <p>How this phone or computer warns you when dissolved oxygen reaches Warning or Critical. Language, theme and app install are in your profile.</p></div>
         <button type="button" data-close aria-label="Close">${ic('x', 18)}</button></div>
       <div class="aq-settings-body">
         <section><h4>${ic('bell-ring', 16)}Notifications</h4>
@@ -307,14 +345,7 @@ export function openAlertSettings() {
             <button type="button" class="aq-btn aq-test-critical" data-act="test-critical">${ic('play', 14)}Test Critical sound</button>
           </div>
           <p>Warning plays a soft two-note chime. Critical plays a clear three-note chime and repeats every 30 seconds until someone taps the critical alert.</p></section>
-        <section><h4>${ic('text', 16)}${tr('language')}</h4>
-          <div class="aq-zoom-presets aq-theme-choice" role="group" aria-label="${tr('language')}">${Object.entries(LANGS).map(([k, v]) => raw(`<button type="button" data-lang-choice="${k}" class="${lang() === k ? 'active' : ''}" aria-pressed="${lang() === k}">${v}</button>`))}</div>
-          <p class="aq-settings-note">${tr('languageNote')}</p></section>
-        <section><h4>${ic('moon', 16)}Appearance</h4>
-          <div class="aq-zoom-presets aq-theme-choice" role="group" aria-label="Colour theme">${['auto', 'light', 'dark'].map((t) => raw(`<button type="button" data-theme-choice="${t}" class="${(window.aqTheme?.get() || 'auto') === t ? 'active' : ''}" aria-pressed="${(window.aqTheme?.get() || 'auto') === t}">${{ auto: 'Auto', light: 'Light', dark: 'Dark' }[t]}</button>`))}</div>
-          <p class="aq-settings-note">Auto follows this device's light / dark setting. Dark is easier on the eyes for night checks.</p></section>
-        <section><h4>${ic('smartphone', 16)}Home screen app</h4>${raw(installHtml)}</section>
-        <p class="aq-settings-note">With instant alerts on, the phone shows a notification within seconds even when AquaCast is closed. The phone plays its own notification sound and the alert stays on the lock screen until tapped; the full-screen alert and the AquaCast chime play when the app is open. On iPhone, notifications need the Home Screen app (iOS 16.4 or newer).</p>
+        <p class="aq-settings-note">With instant alerts on, the phone shows a notification within seconds even when AquaCast is closed. The phone plays its own notification sound and the alert stays on the lock screen until tapped; the full-screen alert and the AquaCast chime play when the app is open. On iPhone, notifications need the Home Screen app (iOS 16.4 or newer): see Profile → Home screen app.</p>
       </div>`,
     onMount: (m, close) => {
       m.querySelector('[data-act=perm]')?.addEventListener('click', async () => {
@@ -339,20 +370,6 @@ export function openAlertSettings() {
         } catch (err) { toast(err.message, 'error'); } finally { btn.disabled = false; }
       });
       m.querySelector('[data-act=push]')?.addEventListener('click', async () => { await syncPush(); close(); openAlertSettings(); });
-      m.querySelectorAll('[data-lang-choice]').forEach((b) => b.addEventListener('click', async () => {
-        if (b.dataset.langChoice === lang()) return;
-        setLang(b.dataset.langChoice);
-        close(); openAlertSettings(); // re-open in the new language
-        try { // phone notifications follow the same language
-          const sub = await (await navigator.serviceWorker?.ready)?.pushManager?.getSubscription();
-          if (sub) await post('/api/push/language', { endpoint: sub.endpoint, lang: lang() });
-        } catch { /* notifications keep the previous language until the next registration */ }
-      }));
-      m.querySelectorAll('[data-theme-choice]').forEach((b) => b.addEventListener('click', () => {
-        window.aqTheme?.set(b.dataset.themeChoice);
-        m.querySelectorAll('[data-theme-choice]').forEach((x) => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
-        window.dispatchEvent(new Event('resize')); // charts redraw with the new colours
-      }));
       m.querySelector('[data-act=sound]')?.addEventListener('change', (e) => { store.set(SOUND_KEY, e.target.checked); unlockAudio(); });
       const test = (level) => async () => {
         unlockAudio();
@@ -366,12 +383,6 @@ export function openAlertSettings() {
       };
       m.querySelector('[data-act=test-warning]')?.addEventListener('click', test(1));
       m.querySelector('[data-act=test-critical]')?.addEventListener('click', test(2));
-      m.querySelector('[data-act=install]')?.addEventListener('click', async () => {
-        if (!installEvent) return;
-        installEvent.prompt();
-        await installEvent.userChoice.catch(() => null);
-        installEvent = null; close();
-      });
     },
   });
 }
