@@ -93,7 +93,9 @@ async function sendTo(subs, payload) {
   await Promise.all(subs.map(async (s) => {
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth_secret } }, body,
-        { TTL: payload.level === 'CRITICAL' ? 7200 : 3600, urgency: 'high', topic: payload.test ? 'aquacast-test' : 'aquacast-risk' });
+        // no "Topic" header: Apple's push service (iPhone) rejects it with 400 BadWebPushTopic.
+        // Replacing an older alert is handled on the phone by the notification tag instead.
+        { TTL: payload.level === 'CRITICAL' ? 7200 : 3600, urgency: 'high' });
       sent += 1;
       await db.from('push_subscriptions').update({ last_success_at: new Date().toISOString(), last_error: null }).eq('subscription_id', s.subscription_id);
     } catch (err) {
