@@ -127,8 +127,6 @@ export default async function live(root, ctx) {
     const trend = d.trend;
     const trendCls = trend?.slope_mg_l_per_hr <= -0.3 ? 'critical-text' : trend?.slope_mg_l_per_hr < -0.05 ? 'warning-text' : '';
 
-    const fc = d.forecasts.filter((f) => f.forecast_status === 'VALID');
-    const lowest = fc.length ? fc.reduce((m, f) => (f.predicted_do_mg_l < m.predicted_do_mg_l ? f : m)) : null;
     const calib = d.calibration?.enabled;
     function heroHtml() {
       const RISK_ICON = { normal: 'circle-check', watch: 'eye', warning: 'triangle-alert', critical: 'octagon-alert', unknown: 'circle-help' };
@@ -136,7 +134,10 @@ export default async function live(root, ctx) {
       const slope = trend?.slope_mg_l_per_hr;
       const urgent = risk === 'WARNING' || risk === 'CRITICAL';
       const fresh = d.freshness?.state || 'NO_DATA';
-      return html`<section class="aq-hero aq-hero-${rk}" aria-label="Pond status">
+      const reading = (k, f) => { const r = o?.readings?.[k]; return r?.usable ? f(r.value) : r ? r.quality_status.replace(/_/g, ' ').toLowerCase() : '--'; };
+      const aer = d.aerator?.initialized ? d.aerator : null;
+      const aerOut = aer?.controller?.output_state || 'UNKNOWN';
+      return html`<section class="aq-hero aq-hero-${rk}" aria-label="Pond status now">
         <div class="aq-hero-main">
           <div class="aq-hero-top">
             <span class="aq-hero-risk">${ic(RISK_ICON[rk] || 'circle-help', 16)}${riskLabel(risk)}</span>
@@ -147,46 +148,37 @@ export default async function live(root, ctx) {
             <div class="aq-hero-value"><span class="aq-hero-label">Dissolved oxygen now</span>
               <div class="aq-hero-number"><strong class="live-do-value ${doClass}">${doValue === null ? '--' : fmtNum(doValue)}</strong><span>mg/L</span></div></div>
             <div class="aq-hero-trend ${trendCls}">${ic(slope === null || slope === undefined ? 'minus' : slope < -0.05 ? 'arrow-down-right' : slope > 0.05 ? 'arrow-up-right' : 'move-right', 22)}
-              <div><b>${trend?.label || 'Not enough data'}</b><small>${slope === null || slope === undefined ? 'needs 3 readings in 1 h' : `${slope > 0 ? '+' : ''}${fmtNum(slope)} mg/L per hour`}</small></div></div>
+              <div><b>${trend?.label || 'Not enough data'}</b><small>${slope === null || slope === undefined ? 'needs 3 readings in 1 h' : `${slope > 0 ? '+' : ''}${fmtNum(slope)} mg/L per hour (measured)`}</small></div></div>
           </div>
           ${doR && !doR.usable && o ? raw(html`<p class="aq-hero-note">DO reading not usable this cycle (${doR.quality_status.replace(/_/g, ' ')}).</p>`) : ''}
           ${d.risk && !d.risk.available && o ? raw(html`<p class="aq-hero-note">${d.risk.message}</p>`) : ''}
-          ${o ? raw(heroSpark()) : ''}
-          <div class="aq-hero-guidance"><strong>${g.title}</strong><p>${g.description}</p></div>
+          <div class="aq-hero-limits"><span>Normal at or above <b>${fmtNum(rule.watch_boundary_do_mg_l, 1)} mg/L</b></span><span>Critical at or below <b>${fmtNum(rule.critical_do_mg_l, 1)} mg/L</b></span></div>
+
+        </div>
+        <div class="aq-hero-side">
+          <button type="button" class="aq-hero-metric aq-hero-link" data-hero="aeration"><span>${ic('fan', 14)}Aerator</span><strong class="${aerOut === 'ON' ? 'aq-ok-text' : ''}">${aer ? aerOut : 'Not ready'}</strong><small>${aer ? `${titleCaseMode(aer.mode?.applied_mode)} mode${aer.controller?.stale ? ' · report is old' : ''}` : 'Controller not set up'}</small></button>
+          <div class="aq-hero-metric"><span>${ic('thermometer', 14)}Water temperature</span><strong>${reading('water_temp_c', (v) => `${fmtNum(v, 1)} °C`)}</strong><small>Probe depth reading</small></div>
+          <div class="aq-hero-metric"><span>${ic('droplets', 14)}DO saturation</span><strong>${reading('do_saturation_pct', (v) => `${fmtNum(v, 0)} %`)}</strong><small>Of the maximum at this temperature</small></div>
+          <div class="aq-hero-metric"><span>${ic('radio', 14)}Latest reading</span><strong>${o ? fmtTime(o.timestamp_utc) : '--'}</strong><small>${o ? `${o.record_status.toLowerCase()} · every 10 min` : 'Waiting for first cycle'}</small></div>
+        </div>
+        <div class="aq-hero-guide-row">
+          <div class="aq-guide">
+            <div class="aq-guide-head"><span class="aq-guide-kicker">${ic('compass', 15)}Operator Decision Guide</span><span class="aq-guide-hitl">Human-in-the-loop</span></div>
+            <strong class="aq-guide-title">${g.title}</strong>
+            <p class="aq-guide-desc">${g.description}</p>
+            <ol class="aq-guide-steps">${g.steps.map((st) => raw(html`<li>${st}</li>`))}</ol>
+            <p class="aq-guide-note">${ic('user-check', 14)}AquaCast supports the decision; the operator makes it. Aeration is only switched when an operator requests it.</p>
+          </div>
+
           <div class="aq-hero-actions">
-            ${urgent ? raw(`<button type="button" class="aq-hero-btn danger" data-hero="aeration">${icon('fan', 17)}Go to aeration control</button><button type="button" class="aq-hero-btn" data-go="forecast">View forecast${icon('arrow-right', 16)}</button>`)
-              : raw(`<button type="button" class="aq-hero-btn primary" data-go="forecast">View 2-hour forecast${icon('arrow-right', 16)}</button>`)}
+            ${urgent ? raw(`<button type="button" class="aq-hero-btn danger" data-hero="aeration">${icon('fan', 17)}Go to aeration control</button>`) : ''}
+            <button type="button" class="aq-hero-btn ${urgent ? '' : 'primary'}" data-hero="log">${ic('clipboard-pen', 16)}Record what you did</button>
             ${d.active_alerts ? raw(`<button type="button" class="aq-hero-btn" data-go="alerts">${icon('bell', 16)}${d.active_alerts} active alert${d.active_alerts > 1 ? 's' : ''}</button>`) : ''}
           </div>
         </div>
-        <div class="aq-hero-side">
-          <div class="aq-hero-metric"><span>${ic('arrow-down-to-line', 14)}Lowest in next 2 h</span><strong class="${lowest ? (doBand(lowest.predicted_do_mg_l, rule) === 'critical' ? 'critical-text' : doBand(lowest.predicted_do_mg_l, rule) === 'watch' ? 'warning-text' : '') : ''}">${lowest ? `${fmtNum(lowest.predicted_do_mg_l)} mg/L` : '--'}</strong><small>${lowest ? `at +${lowest.horizon_minutes} min` : 'No valid forecast'}</small></div>
-          <div class="aq-hero-metric"><span>${ic('clock', 14)}Critical outlook</span><strong>${outlook}</strong><small>Below ${fmtNum(rule.critical_do_mg_l, 1)} mg/L is critical</small></div>
-          <button type="button" class="aq-hero-metric aq-hero-link" data-go="alerts"><span>${ic('bell', 14)}Active alerts</span><strong>${d.active_alerts}</strong><small>${d.active_alerts ? 'Tap to review' : 'Nothing to review'}</small></button>
-          <div class="aq-hero-metric"><span>${ic('radio', 14)}Latest reading</span><strong>${o ? fmtTime(o.timestamp_utc) : '--'}</strong><small>${o ? `${o.record_status.toLowerCase()} · every 10 min` : 'Waiting for first cycle'}</small></div>
-        </div>
       </section>`;
     }
-    /** Small two-hour picture: measured (solid) up to now, forecast (dotted) after, boundary lines. */
-    function heroSpark() {
-      const t0 = new Date(o.timestamp_utc).getTime();
-      const meas = series24.filter((r) => new Date(r.timestamp_utc) >= t0 - 2 * 3600e3 && r.do_mg_l_status === 'VALID').map((r) => [new Date(r.timestamp_utc).getTime(), r.do_mg_l]);
-      const fut = [[t0, doValue], ...fc.map((f) => [t0 + f.horizon_minutes * 60000, f.predicted_do_mg_l])].filter((q) => Number.isFinite(q[1]));
-      const ys = [...meas, ...fut].map((q) => q[1]);
-      if (ys.length < 2) return '';
-      const dom = doDomain(ys, rule);
-      const W = 320; const H = 64; const P = 4;
-      const X = (t) => P + ((t - (t0 - 2 * 3600e3)) / (4 * 3600e3)) * (W - 2 * P);
-      const Y = (v) => P + (1 - (v - dom[0]) / (dom[1] - dom[0])) * (H - 2 * P);
-      const path = (pts) => pts.map((q, i) => `${i ? 'L' : 'M'}${X(q[0]).toFixed(1)},${Y(q[1]).toFixed(1)}`).join('');
-      const line = (v, cls) => (v > dom[0] && v < dom[1] ? `<line class="${cls}" x1="${P}" x2="${W - P}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/>` : '');
-      return `<div class="aq-hero-spark"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Dissolved oxygen over the last 2 hours and the next 2 hours">
-        ${line(rule.watch_boundary_do_mg_l, 'b-watch')}${line(rule.critical_do_mg_l, 'b-crit')}
-        <line class="b-now" x1="${X(t0).toFixed(1)}" x2="${X(t0).toFixed(1)}" y1="0" y2="${H}"/>
-        ${meas.length > 1 ? `<path class="s-meas" d="${path(meas)}"/>` : ''}${fut.length > 1 ? `<path class="s-fc" d="${path(fut)}"/>` : ''}
-        ${Number.isFinite(doValue) ? `<circle class="s-now" cx="${X(t0).toFixed(1)}" cy="${Y(doValue).toFixed(1)}" r="4"/>` : ''}
-      </svg><div class="aq-hero-spark-axis"><span>2 h ago</span><span>Now</span><span>+2 h</span></div></div>`;
-    }
+    const titleCaseMode = (m) => (m ? m.charAt(0) + m.slice(1).toLowerCase() : 'Unknown');
 
     root.innerHTML = html`<div class="live-status-page live-status-redesign">
       ${!o ? raw('<div class="aq-state"><strong>No observations yet</strong><p>When the AquaCast edge device syncs its first 10-minute cycle, the current conditions will appear here.</p></div>') : ''}
@@ -256,7 +248,8 @@ export default async function live(root, ctx) {
     </div>`;
 
     renderAeration(root.querySelector('#aeration-panel'), d.aerator);
-    root.querySelector('[data-hero=aeration]')?.addEventListener('click', () => root.querySelector('#aeration-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    root.querySelectorAll('[data-hero=aeration]').forEach((b) => b.addEventListener('click', () => root.querySelector('#aeration-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' })));
+    root.querySelector('[data-hero=log]')?.addEventListener('click', () => openActivityModal({ variant: 'compact', onSaved: render }));
     setupCollapsibles(root);
     root.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => ctx.navigate(b.dataset.go)));
     root.querySelector('[data-act=log]').addEventListener('click', () => openActivityModal({ variant: 'compact', onSaved: render }));

@@ -231,7 +231,8 @@ ${SCOPE} .aq-hero-watch { --risk-soft: #2e2a10; }
 ${SCOPE} .aq-hero-warning { --risk-soft: #35200e; }
 ${SCOPE} .aq-hero-critical { --risk-soft: #3b1219; }
 ${SCOPE} .aq-hero-unknown { --risk-soft: #1f2630; }
-${SCOPE} .aq-hero-watch .aq-hero-risk { color: #422006; }
+${SCOPE} .aq-hero-watch .aq-hero-risk, ${SCOPE} .aq-hero-watch .aq-guide-steps li::before { color: #422006; }
+${SCOPE} .aq-guide-steps li::before { color: #fff; }
 ${SCOPE} input, ${SCOPE} select, ${SCOPE} textarea { background-color: #0d1117; color: #e6edf3; border-color: #30363d; }
 ${SCOPE} img[src*="icons"], ${SCOPE} .custom-aquacast-logo img { filter: none; }
 ${SCOPE} ::selection { background: #2dd4bf55; }

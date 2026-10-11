@@ -1466,7 +1466,7 @@ html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dash
 html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dashboard-aeration-advisory-kicker { color: #e68ca2; }
 html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dashboard-aeration-advisory-action { background: #be123c; box-shadow: 0 5px 12px #be123c29; }
 
-/* ---- from aquacast-extra.css (194 rules) ---- */
+/* ---- from aquacast-extra.css (205 rules) ---- */
 html[data-theme="dark"] .aq-freshness.sync_delayed { background: #29240f; border-color: #f59e0b55; color: #eabca0; }
 html[data-theme="dark"] .aq-freshness.offline, html[data-theme="dark"] .aq-freshness.no_data, html[data-theme="dark"] .aq-freshness.supabase_unavailable, html[data-theme="dark"] .aq-freshness.backend_unreachable { background: #2f1214; border-color: #7d303d44; color: #e79ab0; }
 html[data-theme="dark"] .aq-freshness.browser_offline { background: #171c21; border-color: #3f4852; color: #c1c9d5; }
@@ -1672,6 +1672,17 @@ html[data-theme="dark"] .aq-error-src.server { background: #1f0d0d; color: #e29e
 html[data-theme="dark"] .aq-error-src.browser { background: #0d181f; color: #a5d5ef; }
 html[data-theme="dark"] .aq-error-detail { color: #b8c0ca; }
 html[data-theme="dark"] .aq-error-detail pre { background: #0f172a; color: #e2e8f0; }
+html[data-theme="dark"] .aq-hero-limits span { background: #232831b3; border: 1px solid #373f4b; color: #b8c0ca; }
+html[data-theme="dark"] .aq-hero-limits b { color: #d3daeb; }
+html[data-theme="dark"] .aq-guide { background: #232831; border: 1px solid #373f4b; }
+html[data-theme="dark"] .aq-guide-hitl { background: #10282a; color: #a1dbea; }
+html[data-theme="dark"] .aq-guide-title { color: #d3daeb; }
+html[data-theme="dark"] .aq-guide-desc { color: #b8c0ca; }
+html[data-theme="dark"] .aq-guide-steps li { background: #1d2329; color: #cdd4e1; }
+html[data-theme="dark"] .aq-guide-steps li::before { color: #f2f2f2; }
+html[data-theme="dark"] .aq-hero-watch .aq-guide-steps li::before { color: #f2d8c4; }
+html[data-theme="dark"] .aq-guide-note { color: #a8b0bb; }
+html[data-theme="dark"] .aq-ok-text { color: #abf2de !important; }
 
 /* ---- base layer ---- */
 html[data-theme="dark"] { color-scheme: dark; --chart-surface: #161b22; --ring: 0 0 0 1px #ffffff12, 0 1px 2px #0000004d, 0 12px 28px -14px #00000099; }
@@ -1682,7 +1693,8 @@ html[data-theme="dark"] .aq-hero-watch { --risk-soft: #2e2a10; }
 html[data-theme="dark"] .aq-hero-warning { --risk-soft: #35200e; }
 html[data-theme="dark"] .aq-hero-critical { --risk-soft: #3b1219; }
 html[data-theme="dark"] .aq-hero-unknown { --risk-soft: #1f2630; }
-html[data-theme="dark"] .aq-hero-watch .aq-hero-risk { color: #422006; }
+html[data-theme="dark"] .aq-hero-watch .aq-hero-risk, html[data-theme="dark"] .aq-hero-watch .aq-guide-steps li::before { color: #422006; }
+html[data-theme="dark"] .aq-guide-steps li::before { color: #fff; }
 html[data-theme="dark"] input, html[data-theme="dark"] select, html[data-theme="dark"] textarea { background-color: #0d1117; color: #e6edf3; border-color: #30363d; }
 html[data-theme="dark"] img[src*="icons"], html[data-theme="dark"] .custom-aquacast-logo img { filter: none; }
 html[data-theme="dark"] ::selection { background: #2dd4bf55; }
