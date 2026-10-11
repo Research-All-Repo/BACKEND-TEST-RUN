@@ -222,6 +222,10 @@ Alerts reach a closed app through Web Push. Each link can be checked in **System
 3. **Registered devices**: each phone turns on alerts from the bell. `Last problem` shows the push service's answer (404/410 = registration expired, turn alerts on again).
 4. **The phone itself**: bell → *Test this phone in 10 seconds*, then close the app. If nothing appears, the phone's notification or battery settings are blocking it (tips are in the same dialog).
 
+## 15. Manual refresh
+
+A **Refresh** button sits in the header on every page (icon only on phones). It reloads the live status and the page on screen without jumping back to the top, then says whether a newer reading arrived. When data is delayed, the button shows an amber dot and the delayed-data banner gets its own **Refresh now** button. Refreshing cannot make the Raspberry Pi send faster: readings arrive every 10 minutes; while the simulator is on, a refresh also lets it catch up on missing readings.
+
 ## Tests
 
 ```bash

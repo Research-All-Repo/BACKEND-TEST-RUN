@@ -703,3 +703,23 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
 .aq-alert-tips { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; background: #f8fafc; }
 .aq-alert-tips summary { cursor: pointer; font-weight: 750; font-size: 13.5px; color: #0f766e; }
 .aq-alert-tips p { margin: 8px 0 0; font-size: 12.5px; line-height: 1.55; color: #334155; }
+
+/* ---------- manual refresh ---------- */
+.aq-header-refresh { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid #d5e8f5;
+  background: #fff; color: #0f766e; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; flex-shrink: 0;
+  transition: transform 160ms var(--ease-out, ease-out), background-color 160ms ease; }
+.aq-header-refresh:hover { background: #f0fdfa; }
+.aq-header-refresh:active { transform: scale(0.97); }
+.aq-header-refresh:disabled { cursor: progress; opacity: .85; }
+.aq-header-refresh.attn::after { content: ''; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 2px #fff; }
+.aq-header-refresh.spinning svg, .aq-fresh-refresh.spinning svg { animation: aq-spin 700ms linear infinite; }
+@keyframes aq-spin { to { transform: rotate(360deg); } }
+@media (width <= 640px) { .aq-header-refresh { padding: 7px; } .aq-header-refresh span { display: none; } }
+.aq-freshness { align-items: flex-start; }
+.aq-freshness > div { flex: 1; min-width: 0; }
+.aq-fresh-refresh { flex: none !important; align-self: center; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap;
+  transition: transform 160ms var(--ease-out, ease-out); }
+.aq-fresh-refresh:active { transform: scale(0.97); }
+@media (width <= 520px) { .aq-fresh-refresh span { display: none; } .aq-fresh-refresh { padding: 7px; } }
+@media (prefers-reduced-motion: reduce) { .aq-header-refresh.spinning svg, .aq-fresh-refresh.spinning svg { animation-duration: 2s; } }

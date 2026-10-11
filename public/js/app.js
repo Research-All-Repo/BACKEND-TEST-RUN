@@ -204,6 +204,7 @@ function enterApp(profile) {
           <div><p class="dashboard-eyebrow">AquaCast Monitoring System</p><h2 id="page-title">Live Status</h2></div>
         </div>
         <div class="aq-header-right">
+          <button type="button" class="aq-header-refresh" data-act="refresh" aria-label="Refresh dashboard data" title="Refresh now">${ic('refresh-cw', 17)}<span>Refresh</span></button>
           <button type="button" class="aq-header-alerts" data-open="alerts" aria-label="Alerts and app settings for this device" title="Alerts &amp; app settings">${ic('bell-ring', 18)}<span>Alerts</span></button>
           <div class="system-status" id="system-status" title="Signed in as ${roleLabel(profile.role)}"><span class="status-dot"></span><span class="role-full">${roleLabel(profile.role)}</span><span class="role-short">${profile.role === 'ADMIN' ? 'Admin' : 'Staff'}</span></div>
         </div>
@@ -229,6 +230,7 @@ function enterApp(profile) {
   root.querySelector('[data-open=profile]').addEventListener('click', openProfile);
   root.querySelector('[data-open=logout]').addEventListener('click', openLogout);
   root.querySelector('[data-open=alerts]').addEventListener('click', openAlertSettings);
+  root.querySelector('[data-act=refresh]').addEventListener('click', () => refreshDashboard());
   syncPush().then(renderAlertsPrompt); // registers this device for instant phone alerts if notifications are allowed
   route();
   startPolling();
@@ -292,19 +294,24 @@ async function route(opts) {
     view.classList.add('aq-first');
     setTimeout(() => view.classList.remove('aq-first'), 3000);
   }
+  if (navOpts.keepScroll) host.style.minHeight = `${host.offsetHeight}px`; // no jump while the page reloads
   host.replaceChildren(view);
-  window.scrollTo(0, 0);
+  if (!navOpts.keepScroll) window.scrollTo(0, 0);
   const current = () => state.navToken === token;
   try {
     const mod = await PAGE_MODULES[id]();
     if (!current()) return;
     const cleanup = await mod.default(view, ctx(navOpts));
     if (current()) state.cleanup = typeof cleanup === 'function' ? cleanup : null;
+    if (navOpts.keepScroll && current()) requestAnimationFrame(() => { host.style.minHeight = ''; window.scrollTo(0, navOpts.keepScroll); });
     else if (typeof cleanup === 'function') { try { cleanup(); } catch { /* ignore */ } }
   } catch (err) {
     if (!current()) return; // the user already left this page; its late error is irrelevant
     if (!err.code) reportError(`${id} page: ${err.message}`, err.stack);
     if (!['SESSION_EXPIRED', 'SESSION_MISSING'].includes(err.code)) view.innerHTML = errorBox(err);
+  } finally {
+    if (!navOpts.keepScroll) host.style.minHeight = '';
+    else if (!current() || !state.cleanup) setTimeout(() => { host.style.minHeight = ''; }, 50);
   }
 }
 window.addEventListener('hashchange', () => route());
@@ -386,7 +393,10 @@ function renderFreshness(fresh, err) {
   else if (err && ['SUPABASE_UNAVAILABLE', 'BACKEND_UNREACHABLE', 'SUPABASE_REQUEST_FAILED', 'BROWSER_OFFLINE'].includes(err.code)) {
     code = err.code.toLowerCase(); title = err.code === 'BACKEND_UNREACHABLE' ? 'Server unreachable' : err.code === 'BROWSER_OFFLINE' ? 'You are offline' : 'Database unreachable'; text = `${err.message} Retrying every minute.${lastText}`;
   } else if (fresh && fresh.state !== 'LIVE') { code = fresh.state.toLowerCase(); title = FRESH_TITLE[fresh.state] || fresh.state; text = fresh.message; }
-  el.innerHTML = code ? html`<div class="aq-freshness ${code}" role="status">${ic(code === 'sync_delayed' ? 'clock-3' : code === 'browser_offline' ? 'wifi-off' : 'triangle-alert', 18)}<div><strong>${title}</strong>${text}</div></div>` : '';
+  el.innerHTML = code ? html`<div class="aq-freshness ${code}" role="status">${ic(code === 'sync_delayed' ? 'clock-3' : code === 'browser_offline' ? 'wifi-off' : 'triangle-alert', 18)}<div><strong>${title}</strong>${text}</div>
+    ${code !== 'browser_offline' ? raw(html`<button type="button" class="aq-fresh-refresh" data-act="refresh-banner">${ic('refresh-cw', 15)}<span>Refresh now</span></button>`) : ''}</div>` : '';
+  el.querySelector('[data-act=refresh-banner]')?.addEventListener('click', () => refreshDashboard());
+  document.querySelector('.aq-header-refresh')?.classList.toggle('attn', !!code);
   const dot = document.querySelector('#system-status .status-dot');
   if (dot) dot.style.background = code ? (code === 'sync_delayed' ? '#f59e0b' : '#e11d48') : '';
 }
@@ -550,6 +560,35 @@ async function refreshLive() {
   }
   return state.live;
 }
+/**
+ * Manual refresh (header button / delayed-data banner): reloads the live status and the page on
+ * screen without jumping to the top, then says whether a newer reading actually arrived.
+ */
+async function refreshDashboard() {
+  if (state.refreshing) return;
+  state.refreshing = true;
+  const btns = document.querySelectorAll('.aq-header-refresh, .aq-fresh-refresh');
+  btns.forEach((b) => { b.classList.add('spinning'); b.disabled = true; b.setAttribute('aria-busy', 'true'); });
+  const before = state.live?.observation?.timestamp_utc || null;
+  const started = Date.now();
+  try {
+    if (!navigator.onLine) { toast('You are offline. AquaCast will refresh when the connection returns.', 'error'); return; }
+    await refreshLive();
+    if (state.liveError) { toast(`Could not refresh: ${state.liveError.message}`, 'error'); return; }
+    await route({ keepScroll: window.scrollY });
+    const after = state.live?.observation?.timestamp_utc || null;
+    const mins = after ? Math.max(0, Math.round((Date.now() - new Date(after)) / 60000)) : null;
+    if (!after) toast('Refreshed. No reading has been received yet.');
+    else if (after !== before) toast(`Refreshed · new reading from ${fmtTime(after)}.`, 'success');
+    else toast(`Refreshed · newest reading is from ${fmtTime(after)} (${mins} min ago). The station sends one every 10 minutes.`);
+  } finally {
+    // keep the spin visible briefly so the tap clearly registered
+    await new Promise((r) => setTimeout(r, Math.max(0, 500 - (Date.now() - started))));
+    document.querySelectorAll('.aq-header-refresh, .aq-fresh-refresh').forEach((b) => { b.classList.remove('spinning'); b.disabled = false; b.removeAttribute('aria-busy'); });
+    state.refreshing = false;
+  }
+}
+
 // Full refresh every 60 s, plus a tiny "anything new?" check every 15 s while the dashboard is
 // on screen, so a new Warning/Critical reading or a test alert shows up within seconds.
 async function pulse() {
