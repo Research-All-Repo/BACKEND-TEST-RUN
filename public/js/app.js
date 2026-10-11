@@ -3,6 +3,7 @@
 // All data comes from the backend API (see docs/API.md); no Supabase keys in the browser.
 import { get, post, onAuthProblem } from './api.js';
 import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
+import { checkRisk, clearIndicators, openAlertSettings, registerServiceWorker } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
 const root = document.getElementById('root');
@@ -54,6 +55,7 @@ const authMessage = (msg) => (msg ? html`<div class="auth2-message ${msg.kind ||
 
 function showLogin(msg) {
   stopPolling();
+  clearIndicators();
   state.profile = null;
   root.innerHTML = authFrame(html`
     <div class="auth2-heading"><span>Authorized Access</span><h2>Sign in to AquaCast</h2><p>Use your authorized account to access the monitoring dashboard.</p></div>
@@ -187,7 +189,10 @@ function enterApp(profile) {
           <button type="button" class="dashboard-menu-button" aria-label="Open navigation menu">${ic('menu', 20)}</button>
           <div><p class="dashboard-eyebrow">AquaCast Monitoring System</p><h2 id="page-title">Live Status</h2></div>
         </div>
-        <div class="system-status" id="system-status"><span class="status-dot"></span>${roleLabel(profile.role)}</div>
+        <div class="aq-header-right">
+          <button type="button" class="aq-header-alerts" data-open="alerts" aria-label="Alerts and app settings for this device" title="Alerts &amp; app settings">${ic('bell-ring', 18)}<span>Alerts</span></button>
+          <div class="system-status" id="system-status"><span class="status-dot"></span>${roleLabel(profile.role)}</div>
+        </div>
       </div></header>
       <section class="dashboard-content"><div class="dashboard-content-inner">
         <div id="freshness"></div>
@@ -202,6 +207,7 @@ function enterApp(profile) {
   root.querySelector('.sidebar-mobile-close').addEventListener('click', () => setSidebar(false));
   root.querySelector('[data-open=profile]').addEventListener('click', openProfile);
   root.querySelector('[data-open=logout]').addEventListener('click', openLogout);
+  root.querySelector('[data-open=alerts]').addEventListener('click', openAlertSettings);
   route();
   startPolling();
 }
@@ -292,13 +298,12 @@ function renderAdvisory() {
   el.querySelector('button').addEventListener('click', () => navigate('live', { focus: 'aeration' }));
 }
 
-function maybeCriticalTakeover() {
+/** Full-screen critical dialog. Called by alerts.js when DO enters CRITICAL (and every 30 min while it lasts). */
+function showCriticalTakeover() {
   const r = state.live?.risk;
-  if (!r || r.current_risk_state !== 'CRITICAL' || !r.risk_id) return;
+  if (!r || r.current_risk_state !== 'CRITICAL') return;
   const key = `aq-critical-${r.risk_id}`;
-  let seen = false;
-  try { seen = sessionStorage.getItem(key) === '1'; } catch { seen = state.dismissedCritical.has(key); }
-  if (seen || document.querySelector('.critical-takeover-overlay')) return;
+  if (document.querySelector('.critical-takeover-overlay')) return;
   const doR = state.live.observation?.readings?.do_mg_l;
   const close = openModal({
     overlayClass: 'critical-takeover-overlay', modalClass: 'critical-takeover-dialog', dismissable: false,
@@ -333,7 +338,7 @@ async function refreshLive() {
     const ab = document.querySelector('[data-badge=alerts]');
     if (ab) { ab.textContent = r.data.active_alerts; ab.classList.toggle('aq-hidden', !r.data.active_alerts); }
     renderAdvisory();
-    maybeCriticalTakeover();
+    checkRisk(state.live, { navigate, showCritical: showCriticalTakeover });
   } catch (err) {
     state.liveError = err;
     renderFreshness(state.live?.freshness, err);
@@ -351,6 +356,8 @@ async function refreshLive() {
 function startPolling() { stopPolling(); refreshLive(); state.poll = setInterval(refreshLive, 60_000); }
 function stopPolling() { if (state.poll) clearInterval(state.poll); state.poll = null; }
 window.addEventListener('online', refreshLive);
+// phones pause background pages: refresh the moment the dashboard is shown again
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.poll) refreshLive(); });
 window.addEventListener('offline', () => renderFreshness(state.live?.freshness, null));
 // re-render the advisory when the page changes (it is hidden on Live Status)
 window.addEventListener('hashchange', () => setTimeout(renderAdvisory, 0));
@@ -410,6 +417,7 @@ onAuthProblem((err) => {
 // Boot: restore a remembered session
 // =====================================================================
 (async function boot() {
+  registerServiceWorker();
   const params = new URLSearchParams(location.search);
   try {
     const r = await get('/api/auth/session', { silentAuth: true });

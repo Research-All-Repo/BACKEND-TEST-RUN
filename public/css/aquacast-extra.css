@@ -171,3 +171,41 @@
 .aq-chart-tooltip em.range { font-size: 10px; padding-left: 21px; margin-top: -3px; }
 .aq-chart .min-label, .aq-chart .zone-label, .aq-chart .end-label, .aq-chart .marker-label { paint-order: stroke; stroke: #ffffffd9; stroke-width: 3px; stroke-linejoin: round; }
 
+
+/* Header: alerts & app settings button */
+.aq-header-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.aq-header-alerts { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid #d5e8f5;
+  background: #fff; color: #0f766e; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; flex-shrink: 0; }
+.aq-header-alerts:hover { background: #f0fdfa; }
+@media (width <= 640px) { .aq-header-alerts { padding: 7px; } .aq-header-alerts span { display: none; } }
+
+/* New WARNING reading: floating alert at the top of the screen */
+.aq-risk-alert { position: fixed; z-index: 70; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+  width: min(720px, calc(100vw - 24px)); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: start;
+  background: #fff7ed; border: 1px solid #fdba74; border-left: 6px solid #f97316; border-radius: 16px; padding: 14px 16px;
+  box-shadow: 0 18px 40px #7c2d1240; animation: aq-alert-in .25s ease-out; }
+.aq-risk-alert-icon { color: #ea580c; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: #ffedd5; }
+.aq-risk-alert-copy span { display: block; font-size: 11px; font-weight: 900; letter-spacing: .05em; color: #c2410c; }
+.aq-risk-alert-copy strong { display: block; font-size: 15px; color: #431407; margin-top: 2px; }
+.aq-risk-alert-copy p { margin: 3px 0 0; font-size: 12px; color: #7c2d12; line-height: 1.45; }
+.aq-risk-alert-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.aq-risk-alert-actions button { font: inherit; font-size: 12px; font-weight: 800; border-radius: 10px; padding: 8px 12px; cursor: pointer;
+  border: 1px solid #fdba74; background: #fff; color: #9a3412; display: inline-flex; align-items: center; gap: 6px; }
+.aq-risk-alert-actions button.primary { background: #ea580c; border-color: #ea580c; color: #fff; }
+.aq-risk-alert-actions button.close { margin-left: auto; padding: 8px; }
+@keyframes aq-alert-in { from { opacity: 0; transform: translate(-50%, -12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { .aq-risk-alert { animation: none; } }
+
+/* Alerts & App dialog */
+.aq-settings-body { padding: 4px 22px 20px; display: grid; gap: 14px; }
+.aq-settings-body section { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px 14px; display: grid; gap: 8px; }
+.aq-settings-body h4 { margin: 0; display: flex; align-items: center; gap: 7px; font-size: 13px; color: #0f172a; }
+.aq-settings-body h4 svg { color: #0d9488; }
+.aq-settings-body p { margin: 0; font-size: 12px; color: #64748b; line-height: 1.5; }
+.aq-settings-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #334155; }
+.aq-switch { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #334155; cursor: pointer; }
+.aq-switch input { width: 18px; height: 18px; accent-color: #0d9488; }
+.aq-steps { margin: 0; padding-left: 18px; font-size: 12px; color: #334155; line-height: 1.7; }
+.aq-settings-ok { color: #047857 !important; font-weight: 700; }
+.aq-settings-note { font-size: 11px !important; }
+.aq-settings-body .aq-btn { justify-self: start; }
