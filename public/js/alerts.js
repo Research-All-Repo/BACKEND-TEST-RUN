@@ -326,12 +326,12 @@ export function openAlertSettings() {
           const reg = await navigator.serviceWorker.ready;
           const sub = await reg.pushManager.getSubscription();
           if (!sub) { toast('This device is not registered for instant alerts. Tap Retry first.', 'error'); return; }
-          toast('Now close AquaCast or lock the phone. The test arrives in about 10 seconds.', 'success');
           const r = await post('/api/push/test-me', { endpoint: sub.endpoint, delay_seconds: 10 });
           const d = r.data || {};
-          if (d.sent) toast('Test notification sent to this phone.', 'success');
-          else if (d.not_registered) { toast('The server does not know this device. Registering it again…', 'error'); await syncPush(); }
-          else toast(`The push service refused the test${d.errors?.length ? `: ${d.errors[0]}` : ''}. An Admin can see details in System Settings.`, 'error');
+          if (d.scheduled) toast('Test scheduled. Close AquaCast or lock the phone now: it arrives in about 10 seconds.', 'success');
+          else if (d.not_registered) { toast('The server does not know this device yet. Registering it again… then try once more.', 'error'); await syncPush(); }
+          else if (d.disabled) toast('Phone alerts are not set up on the server (VAPID keys missing).', 'error');
+          else toast('Could not schedule the test. Try again.', 'error');
         } catch (err) { toast(err.message, 'error'); } finally { btn.disabled = false; }
       });
       m.querySelector('[data-act=push]')?.addEventListener('click', async () => { await syncPush(); close(); openAlertSettings(); });

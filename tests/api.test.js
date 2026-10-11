@@ -264,6 +264,21 @@ test('error log: browsers report, only admins can read', async () => {
   assert.equal((await new Client().post('/api/errors', { message: 'x' })).json.error.code, 'SESSION_MISSING');
 });
 
+test('device test answers at once and sends in the background', async () => {
+  const unknown = await staffC.post('/api/push/test-me', { endpoint: `https://push.example.invalid/none-${RUN}`, delay_seconds: 10 });
+  assert.equal(unknown.status, 200);
+  if (unknown.json.data.disabled) return; // no VAPID keys in this environment
+  assert.equal(unknown.json.data.not_registered, true);
+  const endpoint = `https://push.example.invalid/dev-${RUN}`;
+  assert.equal((await staffC.post('/api/push/subscribe', { subscription: { endpoint, keys: { p256dh: 'x', auth: 'y' } } })).status < 300, true);
+  const t0 = Date.now();
+  const r = await staffC.post('/api/push/test-me', { endpoint, delay_seconds: 10 });
+  assert.equal(r.status, 202);
+  assert.equal(r.json.data.scheduled, true);
+  assert.ok(Date.now() - t0 < 5000, 'does not hold the request open for the delay');
+  await staffC.post('/api/push/unsubscribe', { endpoint });
+});
+
 test('push hooks refuse calls without the shared secret', async () => {
   for (const path of ['/api/push/risk-hook', '/api/push/stale-check']) {
     const r = await new Client().call('POST', path, {}, { 'x-aquacast-hook-secret': 'wrong' });

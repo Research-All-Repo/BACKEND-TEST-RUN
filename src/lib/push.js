@@ -60,6 +60,13 @@ async function sendToEndpoint(endpoint, userId, payload) {
   return sendTo(subs, payload);
 }
 
+/** True when this user's device (endpoint) is registered for push. */
+async function hasSubscription(endpoint, userId) {
+  const { data, error } = await getAdminClient().from('push_subscriptions').select('subscription_id').eq('endpoint', endpoint).eq('user_id', userId).limit(1);
+  if (error) throw error;
+  return data.length > 0;
+}
+
 /** Every registered device with its owner's name and the result of the last send (diagnostics). */
 async function listSubscriptions() {
   const db = getAdminClient();
@@ -97,4 +104,4 @@ async function sendTo(subs, payload) {
   return { sent, failed, removed, ...(errors.length ? { errors: errors.slice(0, 3) } : {}) };
 }
 
-module.exports = { enabled, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, listSubscriptions };
+module.exports = { enabled, saveSubscription, removeSubscription, sendToAll, sendToEndpoint, hasSubscription, listSubscriptions };

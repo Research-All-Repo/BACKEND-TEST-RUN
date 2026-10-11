@@ -6,6 +6,7 @@ const push = require('../lib/push');
 const { E } = require('../lib/errors');
 const { requireRole } = require('../middleware/auth');
 const { getAdminClient } = require('../lib/supabase');
+const { waitUntil } = require('@vercel/functions');
 const { evaluateAndNotify } = require('../services/risk-push');
 const { checkStaleAndNotify } = require('../services/stale-push');
 
@@ -33,12 +34,19 @@ router.post('/test-me', async (req, res, next) => {
     const endpoint = String(req.body?.endpoint || '');
     if (!/^https:\/\//.test(endpoint)) throw E.validation('This device is not registered for instant alerts yet.');
     const delay = Math.max(0, Math.min(15, Number(req.body?.delay_seconds) || 0));
-    if (delay) await new Promise((r) => setTimeout(r, delay * 1000));
-    const result = await push.sendToEndpoint(endpoint, req.auth.user.id, {
-      level: 'CRITICAL', test: true, tag: 'aquacast-device-test', url: '/#live',
-      title: 'TEST: AquaCast alert on this phone', body: 'If you can read this with AquaCast closed, Warning and Critical alerts will reach this phone.',
-    });
-    res.json({ data: result });
+    if (!push.enabled()) return res.json({ data: { disabled: true } });
+    if (!(await push.hasSubscription(endpoint, req.auth.user.id))) return res.json({ data: { not_registered: true } });
+    // Answer straight away: the phone closes AquaCast during the wait, which would cut a long request
+    // ("server cannot be reached"). The send runs after the response; waitUntil keeps the Vercel
+    // function alive for it (on a normal server the promise simply runs).
+    const job = new Promise((r) => setTimeout(r, delay * 1000))
+      .then(() => push.sendToEndpoint(endpoint, req.auth.user.id, {
+        level: 'CRITICAL', test: true, tag: 'aquacast-device-test', url: '/#live',
+        title: 'TEST: AquaCast alert on this phone', body: 'If you can read this with AquaCast closed, Warning and Critical alerts will reach this phone.',
+      }))
+      .catch((e) => console.warn('[push] device test failed:', e.message));
+    waitUntil(job);
+    res.status(202).json({ data: { scheduled: true, delay_seconds: delay } });
   } catch (err) { next(err); }
 });
 
