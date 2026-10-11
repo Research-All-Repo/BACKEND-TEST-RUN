@@ -3,6 +3,7 @@
 import { get, qs } from '../api.js';
 import { html, raw, ic, fmtNum, fmtTime, fmtDateTime, riskKey, riskLabel, doBand, guidanceFor, errorBox } from '../ui.js';
 import { mountChart, doZones, doThresholds, DO_COLOR, FORECAST_COLOR } from '../chart.js';
+import { accuracyChartConfig } from './shared.js';
 
 const BAND_LABEL = { normal: 'NORMAL RANGE', watch: 'WATCH RANGE', critical: '≤ CRITICAL THRESHOLD', unknown: 'DATA UNAVAILABLE' };
 const BAND_TEXT = {
@@ -167,22 +168,7 @@ export default async function forecast(root) {
         const bias = errs.reduce((a, e) => a + e, 0) / errs.length;
         sumBox.innerHTML = html`Over the last 24 hours the <strong>+${h} min</strong> forecast missed the measured DO by <strong>${fmtNum(mae)} mg/L</strong> on average, and was within ±0.3 mg/L <strong>${within}%</strong> of the time. ${Math.abs(bias) < 0.05 ? 'It shows no consistent over- or under-prediction.' : `It tends to ${bias > 0 ? 'over' : 'under'}-predict by about ${fmtNum(Math.abs(bias))} mg/L.`}`;
       } else sumBox.textContent = 'No forecast in the last 24 hours has a measured value to compare with yet.';
-      fvo = mountChart(fvoHost, {
-        ariaLabel: `Forecast versus measured DO for the +${h} minute horizon, last 24 hours`,
-        panels: [
-          { title: 'Dissolved oxygen at the target time', unit: 'mg/L', weight: 1.6, zones: doZones(rule), thresholds: doThresholds(rule),
-            series: [
-              { name: 'Measured', color: DO_COLOR, points: pairs.map((p) => ({ x: new Date(p.target_timestamp_utc), y: p.observed_do_mg_l })), dots: false },
-              { name: `Forecast made ${h} min earlier`, color: FORECAST_COLOR, dashed: true, points: pairs.map((p) => ({ x: new Date(p.target_timestamp_utc), y: p.predicted_do_mg_l })), dots: false },
-            ] },
-          { title: 'Forecast miss (forecast − measured)', unit: 'mg/L', weight: 1, allowNegative: true,
-            zones: [{ from: -0.3, to: 0.3, fill: '#10b98114', solid: '#10b981', label: 'Within ±0.3', legend: 'Within ±0.3 mg/L' }],
-            thresholds: [{ y: 0, label: '0' }],
-            series: [{ name: 'Forecast miss', color: '#64748b', width: 1.5, points: pairs.map((p) => ({ x: new Date(p.target_timestamp_utc), y: Math.round((p.predicted_do_mg_l - p.observed_do_mg_l) * 1000) / 1000 })), dots: false,
-              format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}` }] },
-        ],
-        tooltipX: (dt) => `Target time ${fmtDateTime(dt.toISOString())}`,
-      });
+      fvo = mountChart(fvoHost, accuracyChartConfig(pairs.map((p) => ({ t: p.target_timestamp_utc, measured: p.observed_do_mg_l, forecast: p.predicted_do_mg_l })), h, rule));
     } catch (err) { fvoHost.innerHTML = errorBox(err); }
   }
   root.querySelector('#fvo-h').addEventListener('change', loadFvo);

@@ -122,11 +122,12 @@ export default async function sensors(root) {
         zones: [{ from: 80, to: Infinity, fill: '#e11d4812', solid: '#e11d48', label: 'Throttling risk (≥ 80 °C)', legend: 'CPU ≥ 80 °C: throttling risk' }],
         thresholds: [{ y: 80 }], yFormat: (v) => fmtNum(v, 0),
         series: [
-          { name: 'CPU temperature', color: '#e2553d', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.pi_cpu_temp_c })), dots: false, format: (v) => fmtNum(v, 1) },
-          { name: 'Memory used', color: CONTEXT_COLOR, axis: 'right', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.ram_used_pct })), dots: false, format: (v) => fmtNum(v, 0) },
+          { name: 'CPU temperature', color: '#e2553d', smooth: 6, smoothLabel: '1-hour average', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.pi_cpu_temp_c })), dots: false, format: (v) => fmtNum(v, 1) },
+          { name: 'Memory used', color: CONTEXT_COLOR, axis: 'right', smooth: 6, smoothLabel: '1-hour average', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.ram_used_pct })), dots: false, format: (v) => fmtNum(v, 0) },
         ] },
     ],
     tooltipX: (d) => fmtDateTime(d.toISOString()),
+    navigator: true,
   });
 
   async function openSensor(s) {

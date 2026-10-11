@@ -36,7 +36,7 @@ function niceTicks(min, max, count = 4) {
   if (min === max) { min -= 1; max += 1; }
   const span = max - min;
   const mag = 10 ** Math.floor(Math.log10(span / count));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= count) || 10 * mag;
+  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => span / s <= count) || 10 * mag;
   const lo = Math.floor(min / step) * step;
   const hi = Math.ceil(max / step) * step;
   const ticks = [];
@@ -83,12 +83,57 @@ function normalise(c) {
 
 const valid = (p) => p && Number.isFinite(p.y);
 
+/** Centred rolling mean over `n` points (keeps gaps as gaps). */
+function rollingMean(points, n) {
+  const half = Math.floor(n / 2);
+  return points.map((p, i) => {
+    if (!valid(p)) return p;
+    let sum = 0; let c = 0;
+    for (let k = Math.max(0, i - half); k <= Math.min(points.length - 1, i + half); k += 1) if (valid(points[k])) { sum += points[k].y; c += 1; }
+    return { x: p.x, y: sum / c };
+  });
+}
+
 export function mountChart(host, rawConfig) {
   const config = normalise(rawConfig);
   host.classList.add('aq-chart-host');
   if (config.height) host.style.height = `${config.height}px`;
   let legendEl = null;
   let readoutEl = null;
+  // ---- zoom: a window [v0, v1] over the full time range, chosen with preset buttons or the
+  // overview strip ("navigator") under the chart. Only used when there are many points.
+  const fullPts = config.panels.flatMap((p) => p.series.flatMap((se) => se.points)).filter(valid);
+  const fx0 = Math.min(...fullPts.map((q) => +q.x)); const fx1 = Math.max(...fullPts.map((q) => +q.x));
+  const navSeries = config.panels[0]?.series.find((se) => se.type !== 'bars');
+  const useNav = !!config.navigator && navSeries && navSeries.points.filter(valid).length >= 48 && fx1 - fx0 >= 3 * HOUR;
+  let view = null;
+  let zoomBar = null;
+  if (useNav) {
+    zoomBar = document.createElement('div');
+    zoomBar.className = 'aq-zoom';
+    host.before(zoomBar);
+  }
+  function renderZoomBar() {
+    if (!zoomBar) return;
+    const span = fx1 - fx0;
+    const presets = [[null, 'Whole range'], [12 * HOUR, '12 h'], [6 * HOUR, '6 h'], [3 * HOUR, '3 h']].filter(([ms]) => ms === null || ms < span * 0.9);
+    if (span > 3 * DAY) presets.splice(1, 0, [3 * DAY, '3 days'], [DAY, '1 day']);
+    const cur = view ? view[1] - view[0] : null;
+    zoomBar.innerHTML = '';
+    const label = document.createElement('span'); label.className = 'aq-zoom-label'; label.textContent = 'Zoom';
+    zoomBar.append(label);
+    for (const [ms, text] of presets) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = text;
+      const active = ms === null ? !view : view && Math.abs(cur - ms) < 60_000 && view[1] >= fx1 - 60_000;
+      if (active) b.className = 'active';
+      b.addEventListener('click', () => { view = ms === null ? null : [fx1 - ms, fx1]; draw(); });
+      zoomBar.append(b);
+    }
+    const hint = document.createElement('span'); hint.className = 'aq-zoom-hint';
+    hint.textContent = view ? `Showing ${fmt({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(view[0])} – ${fmt({ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(view[1])} · drag the strip below the chart to move`
+      : 'Drag across the strip below the chart to zoom in';
+    zoomBar.append(hint);
+  }
   const ro = new ResizeObserver(() => draw());
   ro.observe(host);
   draw();
@@ -99,7 +144,10 @@ export function mountChart(host, rawConfig) {
     host.innerHTML = '';
     legendEl?.remove(); legendEl = null;
     readoutEl?.remove(); readoutEl = null;
-    const allSeries = config.panels.flatMap((p) => p.series);
+    renderZoomBar();
+    const inView = (q) => !view || (+q.x >= view[0] && +q.x <= view[1]);
+    const P = view ? config.panels.map((p) => ({ ...p, series: p.series.map((se) => ({ ...se, points: se.points.filter(inView), band: se.band?.filter(inView) })) })) : config.panels;
+    const allSeries = P.flatMap((p) => p.series);
     const allPts = allSeries.flatMap((s) => s.points).filter(valid);
     if (!allPts.length) {
       host.innerHTML = '<div class="aq-state small"><strong>No data for this range</strong><p>Observations will appear here once the edge device syncs them.</p></div>';
@@ -108,10 +156,10 @@ export function mountChart(host, rawConfig) {
     const narrow = W < 520;
     const hasEnd = allSeries.some((s) => s.endLabel);
     const hasDots = allSeries.some((se) => se.dots ?? se.points.length <= 14);
-    const hasRight = config.panels.some((p) => p.series.some((se) => se.axis === 'right'));
+    const hasRight = P.some((p) => p.series.some((se) => se.axis === 'right'));
     // right margin wide enough for the longest right-scale label (e.g. "1,012.0")
     let rightW = 0;
-    for (const p of config.panels) {
+    for (const p of P) {
       const rs = p.series.filter((se) => se.axis === 'right').flatMap((se) => se.points).filter(valid);
       if (!rs.length) continue;
       const f = p.right?.format || ((v) => v.toFixed(1));
@@ -123,20 +171,22 @@ export function mountChart(host, rawConfig) {
     const GAP = 16;
     const strip = config.strip && config.strip.items?.length ? config.strip : null;
     const STRIP = strip ? 26 : 0;
-    const fixed = M.t + M.b + config.panels.reduce((a, p) => a + titleH(p), 0) + (config.panels.length - 1) * GAP + STRIP;
-    const totalW = config.panels.reduce((s, p) => s + (p.weight || 1), 0);
+    const NAV = useNav ? 50 : 0;
+    const fixed = M.t + M.b + NAV + P.reduce((a, p) => a + titleH(p), 0) + (P.length - 1) * GAP + STRIP;
+    const totalW = P.reduce((s, p) => s + (p.weight || 1), 0);
     const avail = Math.max(80, H - fixed);
 
     const xs = allSeries.flatMap((s) => s.points).filter(valid).map((p) => +p.x);
     let x0 = Math.min(...xs); let x1 = Math.max(...xs);
     if (config.xDomain) { x0 = +config.xDomain[0]; x1 = +config.xDomain[1]; }
+    if (view) { x0 = view[0]; x1 = view[1]; }
     if (x0 === x1) { x0 -= HOUR; x1 += HOUR; }
     const plotW = W - M.l - M.r;
     const sx = (x) => M.l + ((x - x0) / (x1 - x0)) * plotW;
 
     // vertical layout
     let y = M.t;
-    const layout = config.panels.map((p, i) => {
+    const layout = P.map((p, i) => {
       const top = y + titleH(p);
       const h = (avail * (p.weight || 1)) / totalW;
       y = top + h;
@@ -168,7 +218,7 @@ export function mountChart(host, rawConfig) {
       const T = niceTicks(d[0], d[1], h < 120 ? 3 : 4);
       const sy = (v) => top + (1 - (v - T.lo) / (T.hi - T.lo)) * h;
       L.sy = sy; L.T = T;
-      const yf = p.yFormat || ((v) => (T.step >= 1 ? v.toFixed(0) : v.toFixed(1)));
+      const yf = p.yFormat || ((v) => v.toFixed(T.step >= 1 ? 0 : T.step >= 0.1 ? 1 : 2));
       // optional right-hand scale for a second variable plotted over the first
       let R = null;
       if (rightSeries.length) {
@@ -192,7 +242,7 @@ export function mountChart(host, rawConfig) {
         s += `<text class="panel-title" x="${tx0 + 19}" y="${top - 25}">${esc(p.title || '')}${p.unit ? `<tspan class="panel-unit"> (${esc(p.unit)}, left scale)</tspan>` : ''}</text>`;
         s += keyLine(top - 11, rc, rightSeries[0].dashed);
         s += `<text class="panel-title" x="${tx0 + 19}" y="${top - 7}">${esc(p.right?.title || rightSeries[0].name)}${p.right?.unit ? `<tspan class="panel-unit"> (${esc(p.right.unit)}, right scale)</tspan>` : ''}</text>`;
-        const rf = p.right?.format || ((v) => (R.step >= 1 ? v.toFixed(0) : v.toFixed(1)));
+        const rf = p.right?.format || ((v) => v.toFixed(R.step >= 1 ? 0 : R.step >= 0.1 ? 1 : 2));
         for (const t of R.ticks) s += `<text class="tick" x="${M.l + plotW + 5}" y="${syR(t) + 4}">${esc(rf(t))}</text>`;
       } else if (R) {
         const lc = leftSeries[0]?.color || '#334155'; const rc = rightSeries[0].color;
@@ -202,7 +252,7 @@ export function mountChart(host, rawConfig) {
         s += `<text class="panel-title right-title" x="${W - 2}" y="${top - 7}" text-anchor="end">${esc(p.right?.title || rightSeries[0].name)}${p.right?.unit ? `<tspan class="panel-unit"> (${esc(p.right.unit)})</tspan>` : ''}</text>`;
         const rkx = W - 2 - rt.length * 6.3 - 20;
         s += `<line class="right-key" x1="${rkx}" x2="${rkx + 14}" y1="${top - 11}" y2="${top - 11}" stroke="${rc}" stroke-width="2.5" ${rightSeries[0].dashed ? 'stroke-dasharray="4 3"' : ''}/>`;
-        const rf = p.right?.format || ((v) => (R.step >= 1 ? v.toFixed(0) : v.toFixed(1)));
+        const rf = p.right?.format || ((v) => v.toFixed(R.step >= 1 ? 0 : R.step >= 0.1 ? 1 : 2));
         for (const t of R.ticks) s += `<text class="tick" x="${M.l + plotW + 7}" y="${syR(t) + 4}">${esc(rf(t))}</text>`;
       } else {
         s += `<text class="panel-title" x="${tx0}" y="${top - 7}">${esc(p.title || '')}${p.unit ? `<tspan class="panel-unit"> (${esc(p.unit)})</tspan>` : ''}</text>`;
@@ -252,7 +302,8 @@ export function mountChart(host, rawConfig) {
         }
         if (se.type === 'bars') {
           const n = Math.max(1, se.points.length);
-          const bw = Math.max(1, Math.min(8, (plotW / n) * 0.7));
+          const bw = se.bucketMs ? Math.max(1, Math.min(se.barMax || 24, (se.bucketMs / (x1 - x0)) * plotW * 0.72))
+            : Math.max(1, Math.min(se.barMax || 8, (plotW / n) * 0.7));
           const y0 = sy(Math.max(T.lo, Math.min(T.hi, 0)));
           for (const pt of se.points) {
             if (!valid(pt)) continue;
@@ -261,12 +312,26 @@ export function mountChart(host, rawConfig) {
           }
           continue;
         }
-        let path = ''; let pen = false;
-        for (const pt of se.points) {
-          if (!valid(pt)) { pen = false; continue; }
-          path += `${pen ? 'L' : 'M'}${sx(+pt.x).toFixed(1)},${sy(pt.y).toFixed(1)}`; pen = true;
+        if (se.style === 'dots') {
+          const r = se.r || (se.points.length > 150 ? 2.2 : 3);
+          for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x).toFixed(1)}" cy="${sy(pt.y).toFixed(1)}" r="${r}" fill="${se.color}" fill-opacity="${se.opacity ?? 0.55}"/>`;
+          continue;
         }
-        s += `<path d="${path}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2}" stroke-linecap="round" stroke-linejoin="round" ${se.dashed ? 'stroke-dasharray="6 5"' : ''}/>`;
+        const pathOf = (pts) => {
+          let d = ''; let pen = false;
+          for (const pt of pts) {
+            if (!valid(pt)) { pen = false; continue; }
+            d += `${pen ? 'L' : 'M'}${sx(+pt.x).toFixed(1)},${sy(pt.y).toFixed(1)}`; pen = true;
+          }
+          return d;
+        };
+        if (se.smooth && se.points.length > se.smooth * 2) {
+          // raw readings faint, a rolling average on top so the trend is easy to follow
+          s += `<path d="${pathOf(se.points)}" fill="none" stroke="${se.color}" stroke-opacity="0.28" stroke-width="1" stroke-linejoin="round"/>`;
+          s += `<path d="${pathOf(rollingMean(se.points, se.smooth))}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2.4}" stroke-linecap="round" stroke-linejoin="round"/>`;
+        } else {
+          s += `<path d="${pathOf(se.points)}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2}" stroke-linecap="round" stroke-linejoin="round" ${se.dashed ? 'stroke-dasharray="6 5"' : ''}/>`;
+        }
         if (se.dots ?? se.points.length <= 14) {
           for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x)}" cy="${sy(pt.y)}" r="${pt.r || 4}" fill="${pt.fill || se.color}" stroke="#fff" stroke-width="2"/>`;
         }
@@ -321,6 +386,23 @@ export function mountChart(host, rawConfig) {
       s += `<text class="tick" x="${tx}" y="${bottom + 15}" text-anchor="${anchor}">${esc(tk.main)}</text>`;
       if (tk.sub) s += `<text class="tick-sub" x="${tx}" y="${bottom + 28}" text-anchor="${anchor}">${esc(tk.sub)}</text>`;
     }
+    // overview strip: the whole range in miniature with the zoom window on top
+    let nav = null;
+    if (useNav) {
+      const nt = H - 40; const nh = 32;
+      const nsx = (x) => M.l + ((x - fx0) / (fx1 - fx0)) * plotW;
+      const np = navSeries.points.filter(valid);
+      const nlo = Math.min(...np.map((q) => q.y)); const nhi = Math.max(...np.map((q) => q.y));
+      const nsy = (v) => nt + nh - 3 - ((v - nlo) / ((nhi - nlo) || 1)) * (nh - 6);
+      let d = ''; np.forEach((q, i) => { d += `${i ? 'L' : 'M'}${nsx(+q.x).toFixed(1)},${nsy(q.y).toFixed(1)}`; });
+      const wl = view ? nsx(view[0]) : M.l; const wr = view ? nsx(view[1]) : M.l + plotW;
+      s += `<g class="nav"><rect class="nav-bg" x="${M.l}" y="${nt}" width="${plotW}" height="${nh}" rx="6"/>`;
+      s += `<path d="${d}" fill="none" stroke="${navSeries.color}" stroke-width="1.2" stroke-opacity="0.7"/>`;
+      s += `<rect class="nav-shade" x="${M.l}" y="${nt}" width="${Math.max(0, wl - M.l)}" height="${nh}"/><rect class="nav-shade" x="${wr}" y="${nt}" width="${Math.max(0, M.l + plotW - wr)}" height="${nh}"/>`;
+      s += `<rect class="nav-window" x="${wl}" y="${nt}" width="${Math.max(2, wr - wl)}" height="${nh}" rx="6"/>`;
+      s += `<rect class="nav-handle" x="${wl - 4}" y="${nt + 7}" width="8" height="${nh - 14}" rx="3"/><rect class="nav-handle" x="${wr - 4}" y="${nt + 7}" width="8" height="${nh - 14}" rx="3"/></g>`;
+      nav = { nt, nh, nsx, wl, wr, toX: (px) => fx0 + ((px - M.l) / plotW) * (fx1 - fx0) };
+    }
     s += `<line class="hover-line" x1="0" x2="0" y1="${layout[0].top}" y2="${bottom}" visibility="hidden"/><g class="hover-dots"></g>`;
     s += `<rect class="hit" x="${M.l}" y="${M.t}" width="${plotW}" height="${bottom - M.t}" fill="transparent"/>`;
 
@@ -338,6 +420,39 @@ export function mountChart(host, rawConfig) {
       try { const w = t.getComputedTextLength(); key.setAttribute('x1', W - 2 - w - 20); key.setAttribute('x2', W - 2 - w - 6); } catch { /* keep estimate */ }
     });
 
+    // ---------- overview strip: drag to zoom / pan ----------
+    if (nav) {
+      // measure against the host: the svg itself is replaced on every redraw while dragging
+      const toSvg = (e) => { const r = host.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H }; };
+      const minSpan = Math.max(45 * MIN, (fx1 - fx0) / 60);
+      svg.addEventListener('pointerdown', (e) => {
+        const pt = toSvg(e);
+        if (pt.y < nav.nt - 4 || pt.y > nav.nt + nav.nh + 4) return;
+        e.preventDefault(); e.stopPropagation();
+        const v = view || [fx0, fx1];
+        let mode = 'pan';
+        if (Math.abs(pt.x - nav.wl) < 12) mode = 'left';
+        else if (Math.abs(pt.x - nav.wr) < 12) mode = 'right';
+        else if (pt.x < nav.wl || pt.x > nav.wr || !view) mode = 'new';
+        const startX = nav.toX(pt.x); const start = [...v];
+        let raf = 0;
+        const move = (ev) => {
+          const x = Math.min(fx1, Math.max(fx0, nav.toX(toSvg(ev).x)));
+          let nv;
+          if (mode === 'left') nv = [Math.min(x, start[1] - minSpan), start[1]];
+          else if (mode === 'right') nv = [start[0], Math.max(x, start[0] + minSpan)];
+          else if (mode === 'new') nv = [Math.min(startX, x), Math.max(startX, x)];
+          else { const dx = x - startX; const span = start[1] - start[0]; let a = start[0] + dx; a = Math.max(fx0, Math.min(fx1 - span, a)); nv = [a, a + span]; }
+          if (nv[1] - nv[0] < minSpan) { if (mode !== 'new') return; const c = (nv[0] + nv[1]) / 2; nv = [Math.max(fx0, c - minSpan / 2), Math.min(fx1, c + minSpan / 2)]; }
+          view = nv[0] <= fx0 + 60_000 && nv[1] >= fx1 - 60_000 ? null : nv;
+          if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); });
+        };
+        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+        if (mode === 'new') move(e);
+      }, { capture: true });
+    }
+
     // ---------- hover / keyboard crosshair ----------
     // desktop: floating tooltip next to the crosshair; phone: a fixed read-out under the chart
     // (so a finger never covers the values and nothing is drawn on top of the lines)
@@ -346,7 +461,8 @@ export function mountChart(host, rawConfig) {
     if (narrow) { tooltip.className = 'aq-chart-readout'; host.after(tooltip); readoutEl = tooltip; } else { tooltip.className = 'aq-chart-tooltip aq-hidden'; host.append(tooltip); }
     const hoverLine = svg.querySelector('.hover-line');
     const dots = svg.querySelector('.hover-dots');
-    const uniqX = [...new Set(xs)].filter((x) => x >= x0 && x <= x1).sort((a, b) => a - b);
+    const hoverXs = allSeries.filter((se) => !(se.type === 'bars' && se.bucketMs)).flatMap((se) => se.points).filter(valid).map((q) => +q.x);
+    const uniqX = [...new Set(hoverXs.length ? hoverXs : xs)].filter((x) => x >= x0 && x <= x1).sort((a, b) => a - b);
     let idx = -1;
     const tf = config.tooltipX || ((d) => fmt({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d));
 
@@ -360,7 +476,9 @@ export function mountChart(host, rawConfig) {
       const head = document.createElement('strong'); head.textContent = tf(new Date(xv)); tip.append(head);
       for (const L of layout) {
         for (const se of L.p.series) {
-          const pt = se.points.find((q) => +q.x === xv);
+          const pt = se.type === 'bars' && se.bucketMs
+            ? se.points.find((q) => xv >= +q.x - se.bucketMs / 2 && xv < +q.x + se.bucketMs / 2)
+            : se.points.find((q) => +q.x === xv);
           if (!valid(pt)) continue;
           dotSvg += `<circle cx="${px}" cy="${L.scaleOf(se)(pt.y)}" r="4.5" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;
           const row = document.createElement('span');
@@ -370,6 +488,7 @@ export function mountChart(host, rawConfig) {
           const val = document.createElement('b'); val.textContent = `${fv(pt.y)}${unit ? ` ${unit}` : ''}`;
           const name = document.createElement('em'); name.textContent = se.name;
           row.append(key, val, name); tip.append(row);
+          if (pt.note) { const nt = document.createElement('em'); nt.className = 'range'; nt.textContent = pt.note; tip.append(nt); }
           const bq = se.band?.find((q) => +q.x === xv);
           if (bq && Number.isFinite(bq.lo) && bq.hi - bq.lo > 0.005) {
             const rg = document.createElement('em'); rg.className = 'range'; rg.textContent = `Range in this period: ${fv(bq.lo)}–${fv(bq.hi)}`; tip.append(rg);
@@ -433,7 +552,7 @@ export function mountChart(host, rawConfig) {
         item.append(key, label); legendEl.append(item);
       };
       const seen = new Set();
-      for (const p of config.panels) for (const se of p.series) if (!seen.has(se.name) && !se.noLegend) { seen.add(se.name); add(se.type === 'bars' ? 'box' : se.dashed ? 'line dashed' : 'line', se.color, se.name); }
+      for (const p of config.panels) for (const se of p.series) if (!seen.has(se.name) && !se.noLegend) { seen.add(se.name); add(se.type === 'bars' ? 'box' : se.style === 'dots' ? 'dot' : se.dashed ? 'line dashed' : 'line', se.color, se.smooth ? `${se.name} (faint: each reading, bold: ${se.smoothLabel || 'rolling average'})` : se.name); }
       for (const ex of config.legendExtra || []) add(ex.cls || 'box', ex.color, ex.label);
       for (const p of config.panels) for (const se of p.series) if (se.band?.length && se.bandLabel && !seen.has(se.bandLabel)) { seen.add(se.bandLabel); add('zone', se.color, se.bandLabel); }
       for (const p of config.panels) for (const z of p.zones || []) if (z.legend && shownZones.has(z) && !seen.has(z.legend)) { seen.add(z.legend); add('zone', z.solid || z.fill, z.legend); }
@@ -446,7 +565,7 @@ export function mountChart(host, rawConfig) {
     if (narrow && uniqX.length) show(uniqX.length - 1, true);
   }
 
-  return { destroy() { ro.disconnect(); legendEl?.remove(); readoutEl?.remove(); host.innerHTML = ''; } };
+  return { destroy() { ro.disconnect(); legendEl?.remove(); readoutEl?.remove(); zoomBar?.remove(); host.innerHTML = ''; } };
 }
 
 // ---------- shared AquaCast helpers ----------

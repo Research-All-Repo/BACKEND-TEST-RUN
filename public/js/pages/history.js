@@ -109,6 +109,7 @@ export default async function history(root, ctx) {
           ] },
       ],
       strip: { title: 'Risk', after: 0, items: riskSegments(series.data, bucket * 60000), styles: RISK_STYLES },
+      navigator: true,
       tooltipX: (dt) => fmtDateTime(dt.toISOString()),
     });
   }

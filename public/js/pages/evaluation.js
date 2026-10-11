@@ -2,9 +2,10 @@
 // plus a predicted-vs-observed chart. Operational metrics only, not thesis results.
 import { get } from '../api.js';
 import { html, raw, ic, fmtNum, fmtDateTime, fmtTime, titleCase, errorBox, loadingBox } from '../ui.js';
-import { mountChart, DO_COLOR, FORECAST_COLOR } from '../chart.js';
+import { mountChart } from '../chart.js';
+import { accuracyChartConfig } from './shared.js';
 
-export default async function evaluation(root) {
+export default async function evaluation(root, ctx) {
   let chart = null;
   root.innerHTML = html`<div class="model2-page">${raw(loadingBox('Loading model evaluation…'))}</div>`;
   const page = root.firstElementChild;
@@ -102,22 +103,7 @@ export default async function evaluation(root) {
         sum.innerHTML = html`Across ${pts.length} forecasts, the <strong>+${h} min</strong> model was off by <strong>${fmtNum(mae, 2)} mg/L</strong> on average and within ±0.3 mg/L <strong>${within}%</strong> of the time. The largest miss was ${worst > 0 ? '+' : ''}${fmtNum(worst, 2)} mg/L.`;
       } else sum.textContent = 'No forecast in the last 48 hours has a measured value to compare with yet.';
       const x = (p) => new Date(p.target_timestamp_utc);
-      chart = mountChart(host, {
-        ariaLabel: `Predicted versus measured DO and forecast error, +${h} minutes, last 48 hours`,
-        panels: [
-          { title: 'Dissolved oxygen at the target time', unit: 'mg/L', weight: 1.6,
-            series: [
-              { name: 'Measured', color: DO_COLOR, points: pts.map((p) => ({ x: x(p), y: p.observed })), dots: false },
-              { name: `Predicted ${h} min earlier`, color: FORECAST_COLOR, dashed: true, points: pts.map((p) => ({ x: x(p), y: p.predicted })), dots: false },
-            ] },
-          { title: 'Forecast miss (predicted − measured)', unit: 'mg/L', weight: 1, allowNegative: true,
-            zones: [{ from: -0.3, to: 0.3, fill: '#10b98114', solid: '#10b981', label: 'Within ±0.3', legend: 'Within ±0.3 mg/L' }],
-            thresholds: [{ y: 0, label: '0' }],
-            series: [{ name: 'Forecast miss', color: '#64748b', width: 1.5, points: pts.map((p) => ({ x: x(p), y: Math.round((p.predicted - p.observed) * 1000) / 1000 })), dots: false,
-              format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}` }] },
-        ],
-        tooltipX: (d) => `Target time ${fmtDateTime(d.toISOString())}`,
-      });
+      chart = mountChart(host, accuracyChartConfig(pts.map((p) => ({ t: p.target_timestamp_utc, measured: p.observed, forecast: p.predicted })), h, ctx?.live?.()?.rule_reference, { label: 'Prediction' }));
     } catch (err) { host.innerHTML = errorBox(err); }
   }
   page.querySelector('#ev-h').addEventListener('change', (e) => loadSeries(Number(e.target.value)));

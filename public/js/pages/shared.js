@@ -1,6 +1,7 @@
 // Pieces shared by several pages: activity recording modal, pagination, icons per event type.
 import { get, post } from '../api.js';
-import { html, raw, ic, openModal, formData, toast, localInputToIso, busy } from '../ui.js';
+import { html, raw, ic, openModal, formData, toast, localInputToIso, busy, fmtNum, fmtDateTime, fmtTime } from '../ui.js';
+import { doZones, doThresholds, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 
 /** Icon for a management event / activity feed row. */
 export function eventIcon(a) {
@@ -104,4 +105,48 @@ export function paginationHtml(prefix, { page, pageSize, total, noun = 'records'
 export function wirePagination(container, onChange) {
   container.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => onChange({ page: Number(b.dataset.page) })));
   container.querySelector('[data-page-size]')?.addEventListener('change', (e) => onChange({ page: 1, pageSize: Number(e.target.value) }));
+}
+
+/**
+ * Chart config for "forecast vs measured" (Forecast & Risk and Model Evaluation).
+ * Top: measured DO as a line, each forecast as a faint dot around it (a dense dashed line
+ * was hard to read). Bottom: ONE column per hour = the average size of the forecast miss in
+ * that hour, orange when it is above the ±0.3 mg/L tolerance. Zoom bar + overview strip on top.
+ * pairs: [{ t: ISO target time, measured, forecast }]
+ */
+export function accuracyChartConfig(pairs, horizon, rule, { tol = 0.3, label = 'Forecast' } = {}) {
+  const HOUR = 3600_000;
+  const groups = new Map();
+  for (const p of pairs) {
+    const t = new Date(p.t).getTime();
+    const k = Math.floor(t / HOUR) * HOUR;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(p.forecast - p.measured);
+  }
+  const bars = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([k, errs]) => {
+    const mae = errs.reduce((a, e) => a + Math.abs(e), 0) / errs.length;
+    const bias = errs.reduce((a, e) => a + e, 0) / errs.length;
+    const worst = errs.reduce((a, e) => (Math.abs(e) > Math.abs(a) ? e : a), 0);
+    const lean = Math.abs(bias) < 0.05 ? 'no clear lean' : bias > 0 ? 'forecasts mostly too high' : 'forecasts mostly too low';
+    return { x: new Date(k + HOUR / 2), y: Math.round(mae * 1000) / 1000, fill: mae > tol ? '#ea580c' : '#94a3b8',
+      note: `${fmtTime(new Date(k).toISOString())}–${fmtTime(new Date(k + HOUR).toISOString())}: ${errs.length} forecasts, ${lean}; largest miss ${worst > 0 ? '+' : ''}${fmtNum(worst)} mg/L` };
+  });
+  const at = (p) => new Date(p.t);
+  return {
+    ariaLabel: `Measured DO and ${label.toLowerCase()}s made ${horizon} minutes earlier, with the average forecast miss per hour`,
+    navigator: true,
+    panels: [
+      { title: 'Measured DO and what was forecast for that time', unit: 'mg/L', weight: 1.7, zones: doZones(rule), thresholds: doThresholds(rule),
+        series: [
+          { name: 'Measured DO', color: DO_COLOR, width: 2.4, points: pairs.map((p) => ({ x: at(p), y: p.measured })), dots: false },
+          { name: `${label} made ${horizon} min earlier (one dot each)`, color: FORECAST_COLOR, style: 'dots', points: pairs.map((p) => ({ x: at(p), y: p.forecast })) },
+        ] },
+      { title: 'Average forecast miss per hour', unit: 'mg/L', weight: 1, domain: [0, Math.max(tol * 1.6, ...bars.map((b) => b.y * 1.15))],
+        thresholds: [{ y: tol, label: tol.toFixed(1) }],
+        series: [{ name: 'Average miss', type: 'bars', bucketMs: HOUR, barMax: 22, color: '#94a3b8', noLegend: true, points: bars, format: (v) => v.toFixed(2) }],
+        yFormat: (v) => v.toFixed(1) },
+    ],
+    legendExtra: [{ cls: 'box', color: '#94a3b8', label: `Hour with average miss ≤ ${tol} mg/L` }, { cls: 'box', color: '#ea580c', label: `Hour with average miss > ${tol} mg/L` }],
+    tooltipX: (d) => `Target time ${fmtDateTime(d.toISOString())}`,
+  };
 }

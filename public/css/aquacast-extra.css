@@ -250,3 +250,16 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .aq-crit-aer-btn:disabled { opacity: .6; cursor: wait; }
 .aq-crit-aer-note { font-size: 11px; opacity: .85; }
 .critical-takeover-dialog { max-height: calc(100dvh - 24px); overflow-y: auto; }
+
+/* Chart zoom bar + overview strip */
+.aq-zoom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
+.aq-zoom-label { font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-right: 2px; }
+.aq-zoom button { font: inherit; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; border: 1px solid #dbe3ec; background: #fff; color: #334155; cursor: pointer; }
+.aq-zoom button.active { background: #0f766e; border-color: #0f766e; color: #fff; }
+.aq-zoom-hint { font-size: 11px; color: #94a3b8; margin-left: 4px; }
+.aq-chart .nav-bg { fill: #f8fafc; stroke: #e2e8f0; }
+.aq-chart .nav-shade { fill: #0f172a; fill-opacity: .06; }
+.aq-chart .nav-window { fill: #0d9488; fill-opacity: .08; stroke: #0d9488; stroke-width: 1.5; cursor: grab; }
+.aq-chart .nav-handle { fill: #fff; stroke: #0d9488; stroke-width: 1.5; cursor: ew-resize; }
+.aq-chart-legend i.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); opacity: .75; }
+@media (width <= 560px) { .aq-zoom-hint { flex-basis: 100%; margin-left: 0; } }
