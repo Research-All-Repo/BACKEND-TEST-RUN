@@ -2,7 +2,7 @@
 // DO vs one context variable chart, recorded risk distribution, paginated records, CSV export.
 import { get, qs } from '../api.js';
 import { html, raw, ic, fmtNum, fmtDateTime, fmtTime, fmtDate, riskKey, riskLabel, localInputToIso, isoToLocalInput, toast, errorBox, loadingBox } from '../ui.js';
-import { mountChart } from '../chart.js';
+import { mountChart, doZones, doThresholds, describeDo, riskSegments, RISK_STYLES, DO_COLOR, CONTEXT_COLOR } from '../chart.js';
 import { paginationHtml, wirePagination } from './shared.js';
 
 const OVERLAYS = {
@@ -15,7 +15,7 @@ const OVERLAYS = {
 };
 const RANGES = { '24h': 'Past 24 Hours', '7d': 'Past 7 Days', '30d': 'Past 30 Days', custom: 'Custom Range' };
 
-export default async function history(root) {
+export default async function history(root, ctx) {
   const st = { range: '24h', from: '', to: '', overlay: 'water_temp_c', page: 1, pageSize: 10 };
   let chart = null;
 
@@ -35,8 +35,8 @@ export default async function history(root) {
             <input class="aq-input" type="datetime-local" id="h-to" aria-label="To (station time)">
             <button type="button" class="aq-btn primary" id="h-apply" style="grid-column:1/-1">${ic('search', 14)}Apply range</button>
           </div></div>
-        <div class="history2-control-card"><div class="history2-control-label">${ic('sliders-horizontal', 15)}<span>Context Overlay</span></div>
-          <div class="history2-select-wrapper"><select id="h-overlay">${Object.entries(OVERLAYS).map(([k, v]) => raw(`<option value="${k}">DO vs ${v.label}</option>`))}</select>${ic('chevron-down', 15)}</div></div>
+        <div class="history2-control-card"><div class="history2-control-label">${ic('sliders-horizontal', 15)}<span>Compare DO with</span></div>
+          <div class="history2-select-wrapper"><select id="h-overlay">${Object.entries(OVERLAYS).map(([k, v]) => raw(`<option value="${k}">${v.label}</option>`))}</select>${ic('chevron-down', 15)}</div></div>
         <div class="history2-record-card"><div><span>Records Shown</span><strong id="h-count">—</strong></div><div class="history2-record-icon">${ic('database', 20)}</div></div>
       </div>
       <div class="history2-summary-grid" id="h-summary"></div>
@@ -77,32 +77,37 @@ export default async function history(root) {
   function renderChart(series, s) {
     const ov = OVERLAYS[st.overlay];
     const rc = s.risk_counts || {};
+    const rule = ctx?.live?.()?.rule_reference;
+    const bucket = series.meta.bucket_minutes;
+    const pts = series.data.map((r) => ({ x: new Date(r.bucket_start), y: r.do_mg_l }));
     const panel = root.querySelector('#h-chart-panel');
-    panel.innerHTML = html`<div class="history2-section-header"><div><span class="history2-eyebrow">HISTORICAL ANALYSIS</span><h3>Dissolved Oxygen &amp; Context Trend</h3>
-        <p>Observed DO against ${ov.label.toLowerCase()} across the selected range (${series.meta.bucket_minutes}-minute averages).</p></div>
-        <div class="history2-chart-context"><span>${rangeText()}</span><span>${ov.short}</span></div></div>
-      <div class="history2-chart-legend">
-        <span class="history2-legend-item"><i class="history2-legend-line history2-do-line"></i>Dissolved Oxygen</span>
-        <span class="history2-legend-item"><i class="history2-legend-line" style="background:#8b5cf6"></i>${ov.short} (${ov.unit})</span>
-        <span class="history2-legend-item history2-legend-muted">Watch boundary 5.0 mg/L</span>
-        <span class="history2-legend-item history2-legend-muted">Critical 3.0 mg/L</span></div>
-      <div class="history2-chart-wrapper" id="h-chart"></div>
+    panel.innerHTML = html`<div class="history2-section-header"><div><span class="history2-eyebrow">HISTORICAL ANALYSIS</span><h3>Dissolved Oxygen &amp; ${ov.label}</h3>
+        <p>${bucket === 10 ? 'Every 10-minute reading' : `Each point is a ${bucket >= 60 ? `${bucket / 60}-hour` : `${bucket}-minute`} average; the shaded band shows the lowest and highest reading in that period`}. Hover or use the arrow keys to read exact values.</p></div>
+        <div class="history2-chart-context"><span>${rangeText()}</span></div></div>
+      <p class="aq-chart-summary">${describeDo(pts, rule, { stepMinutes: bucket })}</p>
+      <div class="history2-chart-wrapper" id="h-chart" style="height:440px"></div>
       <div class="history2-chart-footer">
-        <div class="history2-risk-distribution"><span>Recorded risk states</span><div>
+        <div class="history2-risk-distribution"><span>Recorded risk states (10-minute cycles)</span><div>
           <span class="history2-risk-mini normal">Normal ${rc.NORMAL ?? 0}</span><span class="history2-risk-mini watch">Watch ${rc.WATCH ?? 0}</span>
           <span class="history2-risk-mini warning">Warning ${rc.WARNING ?? 0}</span><span class="history2-risk-mini critical">Critical ${rc.CRITICAL ?? 0}</span></div></div>
-        <span class="history2-history-note">Risk states are shown exactly as recorded by the edge device for each 10-minute cycle${rc.DATA_UNAVAILABLE ? ` (${rc.DATA_UNAVAILABLE} cycles had insufficient data)` : ''}.</span></div>`;
+        <span class="history2-history-note">The coloured strip shows the risk state recorded by the edge device${bucket > 10 ? ' (the worst state within each period)' : ''}${rc.DATA_UNAVAILABLE ? `; ${rc.DATA_UNAVAILABLE} cycles had insufficient data` : ''}.</span></div>`;
     chart?.destroy();
-    const long = series.meta.bucket_minutes >= 120;
+    const at = (r) => new Date(r.bucket_start);
     chart = mountChart(panel.querySelector('#h-chart'), {
-      ariaLabel: `Dissolved oxygen versus ${ov.label}`,
-      series: [
-        { name: 'Dissolved Oxygen (mg/L)', color: '#0d9488', points: series.data.map((r) => ({ x: new Date(r.bucket_start), y: r.do_mg_l })), dots: false },
-        { name: `${ov.short} (${ov.unit})`, color: '#8b5cf6', axis: 'right', width: 1.8, points: series.data.map((r) => ({ x: new Date(r.bucket_start), y: r[st.overlay] })), dots: false, format: (v) => fmtNum(v, ov.d) },
+      ariaLabel: `Dissolved oxygen and ${ov.label}, ${rangeText()}`,
+      panels: [
+        { title: 'Dissolved oxygen', unit: 'mg/L', weight: 1.7, includeThresholds: true,
+          zones: doZones(rule), thresholds: doThresholds(rule),
+          annotateMin: { label: (m) => `Lowest ${m.y.toFixed(2)} · ${fmtDateTime(m.x.toISOString())}` },
+          series: [{ name: 'Dissolved oxygen', color: DO_COLOR, points: pts, dots: false, endLabel: true,
+            band: bucket > 10 ? series.data.map((r) => ({ x: at(r), lo: r.do_min, hi: r.do_max })) : null,
+            bandLabel: bucket > 10 ? 'DO lowest–highest in period' : null }] },
+        { title: ov.label, unit: ov.unit, weight: 1,
+          series: [{ name: ov.label, color: CONTEXT_COLOR, points: series.data.map((r) => ({ x: at(r), y: r[st.overlay] })), dots: false,
+            endLabel: true, format: (v) => fmtNum(v, ov.d) }], yFormat: (v) => fmtNum(v, ov.d === 0 ? 0 : 1) },
       ],
-      refLines: [{ y: 5, label: 'Boundary 5.0', color: '#d97706' }, { y: 3, label: 'Critical 3.0', color: '#e11d48' }],
-      xFormat: (dt) => (long ? fmtDate(dt.toISOString()).replace(/, \d{4}$/, '') : fmtTime(dt.toISOString())),
-      tooltipX: (dt) => fmtDateTime(dt.toISOString()), leftLabel: 'DO mg/L',
+      strip: { title: 'Risk', after: 0, items: riskSegments(series.data, bucket * 60000), styles: RISK_STYLES },
+      tooltipX: (dt) => fmtDateTime(dt.toISOString()),
     });
   }
 

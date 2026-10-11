@@ -1,147 +1,422 @@
-// Dependency-free SVG line chart drawn to resemble the prototype's recharts look.
-// mountChart(host, config) fills `host` (which has a fixed CSS height), redraws on resize,
-// and shows a hover tooltip. Returns { destroy }.
+// Dependency-free SVG time-series charts for the AquaCast dashboard.
+//
+// mountChart(host, config) draws into `host`, redraws on resize and returns { destroy }.
+// Design rules (kept on purpose, see docs): one y-scale per panel (different units go in
+// stacked panels that share the time axis, never a second y-axis); coloured status zones
+// with written labels; a crosshair that reads every series at once; selective direct labels
+// (latest value, lowest value); time ticks on whole hours/days in station time.
 //
 // config = {
-//   series: [{ name, color, dashed, width, axis: 'left'|'right', dots, points: [{ x: Date|number, y: number|null }] }],
-//   refLines: [{ y, label, color, axis }], refAreas: [{ y1, y2, fill }], markerX: { x, label },
-//   xFormat: (Date) => string, yFormat, rightFormat, leftLabel, rightLabel, yPad, leftDomain: [min,max], allowNegative, xTicks: Date[]
+//   ariaLabel, height,                       // total px height (optional; else host CSS height)
+//   panels: [{
+//     title, unit, weight,                   // panel header "Dissolved oxygen (mg/L)"; weight = share of height
+//     series: [{ name, color, dashed, width, dots, format, endLabel, points: [{ x, y, fill, r }],
+//                band: [{ x, lo, hi }], bandLabel }],      // optional min–max range drawn as a light area
+//     zones: [{ from, to, fill, label }],    // y-bands, e.g. Normal / Below boundary / Critical
+//     thresholds: [{ y, label }],            // dashed reference lines (value shown on the y-axis)
+//     domain: [min, max], includeThresholds, allowNegative, pad, yFormat,
+//     annotateMin: { series: 0, label: (point) => string },
+//     marker: { x, label },                  // vertical "Now" line
+//   }],
+//   strip: { title, after: 0, items: [{ x0, x1, key }], styles: { key: { color, label } } },
+//   xTicks: [Date], xFormat: (Date) => string, // optional explicit ticks (e.g. forecast horizons)
+//   tooltipX: (Date) => string,
+//   legend: true,                            // HTML legend under the chart (series, zones, strip)
 // }
-import { esc } from './ui.js';
+// A config without `panels` is treated as one panel (series/zones/thresholds at top level).
+import { esc, getTimezone } from './ui.js';
 
 const NS = 'http://www.w3.org/2000/svg';
+const MIN = 60_000; const HOUR = 60 * MIN; const DAY = 24 * HOUR;
+const STEPS = [10 * MIN, 15 * MIN, 30 * MIN, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 7 * DAY];
 
-function niceTicks(min, max, count = 5) {
+function niceTicks(min, max, count = 4) {
   if (min === max) { min -= 1; max += 1; }
   const span = max - min;
-  const step0 = span / count;
-  const mag = 10 ** Math.floor(Math.log10(step0));
+  const mag = 10 ** Math.floor(Math.log10(span / count));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= count) || 10 * mag;
   const lo = Math.floor(min / step) * step;
   const hi = Math.ceil(max / step) * step;
   const ticks = [];
   for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v * 1e6) / 1e6);
-  return { lo, hi, ticks };
+  return { lo, hi, ticks, step };
 }
 
-export function mountChart(host, config) {
+/** UTC offset (ms) of the station time zone at instant t. */
+function tzOffset(t) {
+  try {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: getTimezone(), hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(new Date(t)).map((p) => [p.type, p.value]));
+    return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second) - Math.floor(t / 1000) * 1000;
+  } catch { return 8 * HOUR; }
+}
+const fmt = (opts) => new Intl.DateTimeFormat('en-US', { timeZone: getTimezone(), ...opts });
+
+/** Ticks on whole local hours / days; each label is [main, sub] where sub shows the date when it changes. */
+function timeTicks(x0, x1, maxTicks) {
+  const span = x1 - x0;
+  const step = STEPS.find((s) => span / s <= maxTicks) || 14 * DAY;
+  const off = tzOffset(x0);
+  const first = Math.ceil((x0 + off) / step) * step - off;
+  const hm = fmt({ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const md = fmt({ month: 'short', day: 'numeric' });
+  const ticks = [];
+  let lastDay = '';
+  for (let t = first; t <= x1; t += step) {
+    const day = md.format(t);
+    if (step >= DAY) ticks.push({ t, main: day, sub: '' });
+    else { ticks.push({ t, main: hm.format(t), sub: day !== lastDay ? day : '' }); }
+    lastDay = day;
+  }
+  return ticks;
+}
+
+function normalise(c) {
+  if (c.panels) return c;
+  return { ...c, panels: [{ title: c.leftLabel, series: c.series, zones: c.zones || (c.refAreas || []).map((a) => ({ from: a.y1, to: a.y2, fill: a.fill })),
+    thresholds: c.thresholds || (c.refLines || []).map((r) => ({ y: r.y, label: r.label })), domain: c.leftDomain, allowNegative: c.allowNegative,
+    pad: c.yPad, yFormat: c.yFormat, marker: c.markerX, annotateMin: c.annotateMin }] };
+}
+
+const valid = (p) => p && Number.isFinite(p.y);
+
+export function mountChart(host, rawConfig) {
+  const config = normalise(rawConfig);
   host.classList.add('aq-chart-host');
-  let tooltip = null;
+  if (config.height) host.style.height = `${config.height}px`;
+  let legendEl = null;
   const ro = new ResizeObserver(() => draw());
   ro.observe(host);
   draw();
 
   function draw() {
     const W = Math.max(280, host.clientWidth || 600);
-    const H = Math.max(160, host.clientHeight || 300);
-    const hasRight = config.series.some((s) => s.axis === 'right');
-    const M = { l: 46, r: hasRight ? 50 : 18, t: 14, b: 30 };
-    const pts = (axis) => config.series.filter((s) => (s.axis || 'left') === axis).flatMap((s) => s.points)
-      .filter((p) => Number.isFinite(p?.y));
-    const all = config.series.flatMap((s) => s.points).filter((p) => Number.isFinite(p?.y));
+    const H = Math.max(180, host.clientHeight || 320);
     host.innerHTML = '';
-    if (!all.length) {
-      host.innerHTML = `<div class="aq-state small"><strong>No data for this range</strong><p>Observations will appear here once the edge device syncs them.</p></div>`;
+    legendEl?.remove(); legendEl = null;
+    const allSeries = config.panels.flatMap((p) => p.series);
+    const allPts = allSeries.flatMap((s) => s.points).filter(valid);
+    if (!allPts.length) {
+      host.innerHTML = '<div class="aq-state small"><strong>No data for this range</strong><p>Observations will appear here once the edge device syncs them.</p></div>';
       return;
     }
-    const xs = config.series.flatMap((s) => s.points).map((p) => +p.x);
-    let x0 = Math.min(...xs); let x1 = Math.max(...xs); if (x0 === x1) { x0 -= 1; x1 += 1; }
+    const narrow = W < 520;
+    const hasEnd = allSeries.some((s) => s.endLabel);
+    const hasDots = allSeries.some((se) => se.dots ?? se.points.length <= 14);
+    const M = { l: narrow ? 38 : 46, r: hasEnd ? (narrow ? 44 : 54) : hasDots ? 24 : 14, t: 4, b: config.xTicks ? 22 : 34 };
+    const TITLE = 20; const GAP = 16;
+    const strip = config.strip && config.strip.items?.length ? config.strip : null;
+    const STRIP = strip ? 26 : 0;
+    const fixed = M.t + M.b + config.panels.length * TITLE + (config.panels.length - 1) * GAP + STRIP;
+    const totalW = config.panels.reduce((s, p) => s + (p.weight || 1), 0);
+    const avail = Math.max(80, H - fixed);
 
-    const leftVals = [...pts('left').map((p) => p.y), ...(config.refLines || []).filter((r) => (r.axis || 'left') === 'left').map((r) => r.y)];
-    const pad = config.yPad ?? 0.5;
-    const ld = config.leftDomain || [Math.min(...leftVals) - pad, Math.max(...leftVals) + pad];
-    const L = niceTicks(config.allowNegative ? ld[0] : Math.max(0, ld[0]), ld[1]);
-    let R = null;
-    if (hasRight) {
-      const rv = pts('right').map((p) => p.y);
-      const span = (Math.max(...rv) - Math.min(...rv)) || Math.abs(rv[0] || 1) * 0.1 || 1;
-      R = niceTicks(Math.min(...rv) - span * 0.1, Math.max(...rv) + span * 0.1);
+    const xs = allSeries.flatMap((s) => s.points).filter(valid).map((p) => +p.x);
+    let x0 = Math.min(...xs); let x1 = Math.max(...xs);
+    if (config.xDomain) { x0 = +config.xDomain[0]; x1 = +config.xDomain[1]; }
+    if (x0 === x1) { x0 -= HOUR; x1 += HOUR; }
+    const plotW = W - M.l - M.r;
+    const sx = (x) => M.l + ((x - x0) / (x1 - x0)) * plotW;
+
+    // vertical layout
+    let y = M.t;
+    const layout = config.panels.map((p, i) => {
+      const top = y + TITLE;
+      const h = (avail * (p.weight || 1)) / totalW;
+      y = top + h;
+      const out = { p, top, h, stripTop: null };
+      if (strip && (strip.after ?? 0) === i) { out.stripTop = y + 10; y += STRIP; }
+      y += GAP;
+      return out;
+    });
+    const bottom = layout[layout.length - 1].top + layout[layout.length - 1].h;
+
+    const ticks = config.xTicks
+      ? config.xTicks.map((t) => ({ t: +t, main: (config.xFormat || ((d) => d.toISOString()))(new Date(t)), sub: '' }))
+      : timeTicks(x0, x1, Math.max(3, Math.floor(plotW / (narrow ? 70 : 90))));
+    const tickXs = ticks.map((tk) => sx(tk.t)).filter((tx) => tx >= M.l - 1 && tx <= M.l + plotW + 1);
+
+    const shownZones = new Set();
+    let s = '';
+    for (const L of layout) {
+      const { p, top, h } = L;
+      const vals = p.series.flatMap((se) => [...se.points.filter(valid).map((pt) => pt.y),
+        ...(se.band || []).flatMap((q) => [q.lo, q.hi]).filter(Number.isFinite)]);
+      const extra = p.includeThresholds ? (p.thresholds || []).map((t) => t.y) : [];
+      const lo = Math.min(...vals, ...extra); const hi = Math.max(...vals, ...extra);
+      const pad = p.pad ?? Math.max((hi - lo) * 0.12, 0.2);
+      const d = p.domain || [p.allowNegative ? lo - pad : Math.max(0, lo - pad), hi + pad];
+      const T = niceTicks(d[0], d[1], h < 120 ? 3 : 4);
+      const sy = (v) => top + (1 - (v - T.lo) / (T.hi - T.lo)) * h;
+      L.sy = sy; L.T = T;
+      const yf = p.yFormat || ((v) => (T.step >= 1 ? v.toFixed(0) : v.toFixed(1)));
+
+      // title
+      s += `<text class="panel-title" x="${M.l - (narrow ? 34 : 42)}" y="${top - 7}">${esc(p.title || '')}${p.unit ? `<tspan class="panel-unit"> (${esc(p.unit)})</tspan>` : ''}</text>`;
+      // zones
+      const zoneBoxes = [];
+      for (const z of p.zones || []) {
+        const za = sy(Math.min(z.to ?? T.hi, T.hi)); const zb = sy(Math.max(z.from ?? T.lo, T.lo));
+        if (zb - za <= 0) continue;
+        shownZones.add(z);
+        s += `<rect x="${M.l}" y="${za}" width="${plotW}" height="${zb - za}" fill="${z.fill}"/>`;
+        if (z.label && zb - za >= 14) {
+          s += `<text class="zone-label" x="${M.l + 6}" y="${za + 12}">${esc(z.label)}</text>`;
+          zoneBoxes.push({ x0: M.l + 4, x1: M.l + 8 + z.label.length * 5.6, y0: za + 2, y1: za + 15 });
+        }
+      }
+      // grid + y labels (threshold values replace nearby ticks)
+      const th = (p.thresholds || []).filter((t) => t.y >= T.lo && t.y <= T.hi);
+      s += '<g class="grid">';
+      for (const t of T.ticks) s += `<line x1="${M.l}" x2="${M.l + plotW}" y1="${sy(t)}" y2="${sy(t)}"/>`;
+      for (const tx of tickXs) s += `<line x1="${tx}" x2="${tx}" y1="${top}" y2="${top + h}"/>`;
+      s += '</g>';
+      for (const t of T.ticks) {
+        if (th.some((r) => Math.abs(sy(r.y) - sy(t)) < 11)) continue;
+        s += `<text class="tick" x="${M.l - 7}" y="${sy(t) + 4}" text-anchor="end">${esc(yf(t))}</text>`;
+      }
+      for (const r of th) {
+        s += `<line class="threshold" x1="${M.l}" x2="${M.l + plotW}" y1="${sy(r.y)}" y2="${sy(r.y)}"/>`;
+        s += `<text class="tick threshold-tick" x="${M.l - 7}" y="${sy(r.y) + 4}" text-anchor="end">${esc(r.label ?? yf(r.y))}</text>`;
+      }
+      // marker
+      if (p.marker && +p.marker.x >= x0 && +p.marker.x <= x1) {
+        const mx = sx(+p.marker.x);
+        s += `<line class="marker" x1="${mx}" x2="${mx}" y1="${top}" y2="${top + h}"/>`;
+        s += `<text class="marker-label" x="${mx + 5}" y="${top + 11}">${esc(p.marker.label || '')}</text>`;
+      }
+      // series
+      for (const se of p.series) {
+        if (se.band?.length) {
+          const bp = se.band.filter((q) => Number.isFinite(q.lo) && Number.isFinite(q.hi));
+          if (bp.length > 1) {
+            const up = bp.map((q) => `${sx(+q.x).toFixed(1)},${sy(q.hi).toFixed(1)}`);
+            const dn = bp.slice().reverse().map((q) => `${sx(+q.x).toFixed(1)},${sy(q.lo).toFixed(1)}`);
+            s += `<polygon points="${up.concat(dn).join(' ')}" fill="${se.color}" fill-opacity="0.12"/>`;
+          }
+        }
+        let path = ''; let pen = false;
+        for (const pt of se.points) {
+          if (!valid(pt)) { pen = false; continue; }
+          path += `${pen ? 'L' : 'M'}${sx(+pt.x).toFixed(1)},${sy(pt.y).toFixed(1)}`; pen = true;
+        }
+        s += `<path d="${path}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2}" stroke-linecap="round" stroke-linejoin="round" ${se.dashed ? 'stroke-dasharray="6 5"' : ''}/>`;
+        if (se.dots ?? se.points.length <= 14) {
+          for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x)}" cy="${sy(pt.y)}" r="${pt.r || 4}" fill="${pt.fill || se.color}" stroke="#fff" stroke-width="2"/>`;
+        }
+        const f = se.format || ((v) => v.toFixed(2));
+        if (se.endLabel) {
+          const last = [...se.points].reverse().find(valid);
+          if (last) {
+            s += `<circle cx="${sx(+last.x)}" cy="${sy(last.y)}" r="4" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;
+            s += `<text class="end-label" x="${sx(+last.x) + 8}" y="${sy(last.y) + 4}">${esc(f(last.y))}</text>`;
+          }
+        }
+      }
+      // lowest-value annotation
+      if (p.annotateMin) {
+        const se = p.series[p.annotateMin.series || 0];
+        const pts = se.points.filter(valid);
+        if (pts.length > 2) {
+          const m = pts.reduce((a, b) => (b.y < a.y ? b : a));
+          const mx = sx(+m.x); const my = sy(m.y);
+          const label = p.annotateMin.label(m);
+          const tw = label.length * 6;
+          const lx = Math.min(Math.max(mx - tw / 2, M.l + 2), M.l + plotW - tw - 2);
+          const hits = (ty) => zoneBoxes.some((zb) => lx < zb.x1 && lx + tw > zb.x0 && ty - 10 < zb.y1 && ty + 2 > zb.y0);
+          let ty = my + 22 < top + h ? my + 19 : my - 10;
+          if (hits(ty) && !hits(my - 10) && my - 20 > top) ty = my - 10;
+          s += `<circle cx="${mx}" cy="${my}" r="5" fill="#fff" stroke="${se.color}" stroke-width="2"/>`;
+          s += `<text class="min-label" x="${lx}" y="${ty}">${esc(label)}</text>`;
+        }
+      }
+      // strip below this panel
+      if (L.stripTop !== null) {
+        s += `<text class="strip-title" x="${M.l - 7}" y="${L.stripTop + 9}" text-anchor="end">${esc(strip.title || '')}</text>`;
+        for (const it of strip.items) {
+          const a = Math.max(sx(+it.x0), M.l); const b = Math.min(sx(+it.x1), M.l + plotW);
+          if (b - a <= 0) continue;
+          s += `<rect x="${a}" y="${L.stripTop}" width="${Math.max(1, b - a)}" height="12" fill="${strip.styles[it.key]?.color || '#cbd5e1'}"/>`;
+        }
+      }
     }
-    const sx = (x) => M.l + ((x - x0) / (x1 - x0)) * (W - M.l - M.r);
-    const syL = (y) => M.t + (1 - (y - L.lo) / (L.hi - L.lo)) * (H - M.t - M.b);
-    const syR = R ? (y) => M.t + (1 - (y - R.lo) / (R.hi - R.lo)) * (H - M.t - M.b) : syL;
-    const yOf = (s) => ((s.axis || 'left') === 'right' ? syR : syL);
+
+    // x-axis
+    s += `<line class="axis" x1="${M.l}" x2="${M.l + plotW}" y1="${bottom}" y2="${bottom}"/>`;
+    for (const tk of ticks) {
+      const tx = sx(tk.t);
+      if (tx < M.l - 1 || tx > M.l + plotW + 1) continue;
+      const anchor = tx - M.l < 20 ? 'start' : M.l + plotW - tx < 20 ? 'end' : 'middle';
+      s += `<text class="tick" x="${tx}" y="${bottom + 15}" text-anchor="${anchor}">${esc(tk.main)}</text>`;
+      if (tk.sub) s += `<text class="tick-sub" x="${tx}" y="${bottom + 28}" text-anchor="${anchor}">${esc(tk.sub)}</text>`;
+    }
+    s += `<line class="hover-line" x1="0" x2="0" y1="${layout[0].top}" y2="${bottom}" visibility="hidden"/><g class="hover-dots"></g>`;
+    s += `<rect class="hit" x="${M.l}" y="${M.t}" width="${plotW}" height="${bottom - M.t}" fill="transparent"/>`;
 
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('class', 'aq-chart');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', config.ariaLabel || 'Chart');
-    let s = '';
-    for (const a of config.refAreas || []) {
-      const ya = syL(Math.min(Math.max(a.y2, L.lo), L.hi)); const yb = syL(Math.max(Math.min(a.y1, L.hi), L.lo));
-      s += `<rect x="${M.l}" y="${ya}" width="${W - M.l - M.r}" height="${Math.max(0, yb - ya)}" fill="${a.fill}"/>`;
-    }
-    s += '<g class="grid">';
-    for (const t of L.ticks) s += `<line x1="${M.l}" x2="${W - M.r}" y1="${syL(t)}" y2="${syL(t)}"/>`;
-    s += '</g>';
-    const yf = config.yFormat || ((v) => v.toFixed(1));
-    for (const t of L.ticks) s += `<text x="${M.l - 8}" y="${syL(t) + 4}" text-anchor="end">${esc(yf(t))}</text>`;
-    if (R) {
-      const rf = config.rightFormat || ((v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : v.toFixed(1)));
-      for (const t of R.ticks) s += `<text x="${W - M.r + 8}" y="${syR(t) + 4}">${esc(rf(t))}</text>`;
-    }
-    const nX = Math.max(2, Math.min(7, Math.floor((W - M.l - M.r) / 110)));
-    const xf = config.xFormat || ((d) => d.toLocaleTimeString());
-    const xvals = config.xTicks ? config.xTicks.map((d) => +d) : Array.from({ length: nX + 1 }, (_, i) => x0 + ((x1 - x0) * i) / nX);
-    xvals.forEach((xv, i) => {
-      s += `<text x="${sx(xv)}" y="${H - 8}" text-anchor="${i === 0 ? 'start' : i === xvals.length - 1 ? 'end' : 'middle'}">${esc(xf(new Date(xv)))}</text>`;
-    });
-    if (config.leftLabel) s += `<text class="axis-label" x="${M.l - 38}" y="${M.t + 2}" transform="rotate(-90 ${M.l - 38} ${M.t + 2})" text-anchor="end">${esc(config.leftLabel)}</text>`;
-    for (const r of config.refLines || []) {
-      const y = (r.axis === 'right' ? syR : syL)(r.y);
-      s += `<line x1="${M.l}" x2="${W - M.r}" y1="${y}" y2="${y}" stroke="${r.color}" stroke-width="1.4" stroke-dasharray="6 5"/>`;
-      s += `<text class="ref-label" x="${W - M.r - 4}" y="${y - 5}" text-anchor="end" style="fill:${r.color}">${esc(r.label)}</text>`;
-    }
-    if (config.markerX) {
-      const x = sx(+config.markerX.x);
-      s += `<line x1="${x}" x2="${x}" y1="${M.t}" y2="${H - M.b}" stroke="#94a3b8" stroke-dasharray="4 4"/>`;
-      s += `<text x="${x + 5}" y="${M.t + 10}" style="font-size:10px">${esc(config.markerX.label || '')}</text>`;
-    }
-    for (const se of config.series) {
-      const sy = yOf(se);
-      let d = ''; let pen = false;
-      for (const p of se.points) {
-        if (!Number.isFinite(p?.y)) { pen = false; continue; }
-        d += `${pen ? 'L' : 'M'}${sx(+p.x).toFixed(1)},${sy(p.y).toFixed(1)}`; pen = true;
-      }
-      s += `<path d="${d}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2.4}" stroke-linecap="round" stroke-linejoin="round" ${se.dashed ? 'stroke-dasharray="8 6"' : ''}/>`;
-      const showDots = se.dots ?? se.points.length <= 14;
-      if (showDots) {
-        for (const p of se.points) {
-          if (Number.isFinite(p?.y)) s += `<circle cx="${sx(+p.x)}" cy="${sy(p.y)}" r="${p.r || 4}" fill="${p.fill || se.color}" stroke="#fff" stroke-width="2"/>`;
-        }
-      }
-    }
-    s += `<line class="hover-line" x1="0" x2="0" y1="${M.t}" y2="${H - M.b}" stroke="#0f766e" stroke-opacity="0" stroke-width="1"/>`;
+    svg.setAttribute('tabindex', '0');
+    svg.setAttribute('aria-label', `${config.ariaLabel || 'Chart'}. Use the left and right arrow keys to read values.`);
     svg.innerHTML = s;
     host.append(svg);
 
-    tooltip = document.createElement('div');
+    // ---------- hover / keyboard crosshair ----------
+    const tooltip = document.createElement('div');
     tooltip.className = 'aq-chart-tooltip aq-hidden';
+    tooltip.setAttribute('role', 'status');
     host.append(tooltip);
     const hoverLine = svg.querySelector('.hover-line');
-    const uniqX = [...new Set(xs)].sort((a, b) => a - b);
-    svg.addEventListener('mousemove', (e) => {
-      const rect = svg.getBoundingClientRect();
-      const mx = ((e.clientX - rect.left) / rect.width) * W;
-      const xv = x0 + ((mx - M.l) / (W - M.l - M.r)) * (x1 - x0);
-      let best = uniqX[0];
-      for (const u of uniqX) if (Math.abs(u - xv) < Math.abs(best - xv)) best = u;
-      const rows = config.series.map((se) => ({ se, p: se.points.find((p) => +p.x === best) }))
-        .filter((r) => r.p && Number.isFinite(r.p.y));
-      if (!rows.length) { tooltip.classList.add('aq-hidden'); return; }
-      hoverLine.setAttribute('x1', sx(best)); hoverLine.setAttribute('x2', sx(best)); hoverLine.setAttribute('stroke-opacity', '0.35');
-      const tf = config.tooltipX || xf;
-      tooltip.innerHTML = `<strong>${esc(tf(new Date(best)))}</strong>` + rows.map((r) =>
-        `<span><i style="background:${r.se.color}"></i>${esc(r.se.name)}: <b>${esc((r.se.format || ((v) => v.toFixed(2)))(r.p.y))}</b></span>`).join('');
+    const dots = svg.querySelector('.hover-dots');
+    const uniqX = [...new Set(xs)].filter((x) => x >= x0 && x <= x1).sort((a, b) => a - b);
+    let idx = -1;
+    const tf = config.tooltipX || ((d) => fmt({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d));
+
+    function show(i) {
+      idx = Math.max(0, Math.min(uniqX.length - 1, i));
+      const xv = uniqX[idx];
+      const px = sx(xv);
+      hoverLine.setAttribute('x1', px); hoverLine.setAttribute('x2', px); hoverLine.setAttribute('visibility', 'visible');
+      let dotSvg = '';
+      const tip = document.createElement('div');
+      const head = document.createElement('strong'); head.textContent = tf(new Date(xv)); tip.append(head);
+      for (const L of layout) {
+        for (const se of L.p.series) {
+          const pt = se.points.find((q) => +q.x === xv);
+          if (!valid(pt)) continue;
+          dotSvg += `<circle cx="${px}" cy="${L.sy(pt.y)}" r="4.5" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;
+          const row = document.createElement('span');
+          const key = document.createElement('i'); key.className = se.dashed ? 'dashed' : ''; key.style.borderColor = se.color;
+          const fv = se.format || ((v) => v.toFixed(2));
+          const val = document.createElement('b'); val.textContent = `${fv(pt.y)}${L.p.unit ? ` ${L.p.unit}` : ''}`;
+          const name = document.createElement('em'); name.textContent = se.name;
+          row.append(key, val, name); tip.append(row);
+          const bq = se.band?.find((q) => +q.x === xv);
+          if (bq && Number.isFinite(bq.lo) && bq.hi - bq.lo > 0.005) {
+            const rg = document.createElement('em'); rg.className = 'range'; rg.textContent = `Range in this period: ${fv(bq.lo)}–${fv(bq.hi)}`; tip.append(rg);
+          }
+          const zone = (L.p.zones || []).find((z) => pt.y >= (z.from ?? -Infinity) && pt.y < (z.to ?? Infinity));
+          if (zone?.status && se === L.p.series[0]) {
+            const st = document.createElement('small'); st.textContent = zone.status; st.style.borderLeftColor = zone.solid || se.color; tip.append(st);
+          }
+        }
+      }
+      if (strip) {
+        const it = strip.items.find((q) => xv >= +q.x0 && xv < +q.x1);
+        if (it) {
+          const st = document.createElement('small');
+          st.textContent = `${strip.title}: ${strip.styles[it.key]?.label || it.key}`;
+          st.style.borderLeftColor = strip.styles[it.key]?.color || '#cbd5e1';
+          tip.append(st);
+        }
+      }
+      dots.innerHTML = dotSvg;
+      tooltip.replaceChildren(...tip.childNodes);
       tooltip.classList.remove('aq-hidden');
-      const px = (sx(best) / W) * rect.width;
-      tooltip.style.left = `${Math.min(rect.width - 160, Math.max(0, px + 12))}px`;
-      tooltip.style.top = '8px';
+      const rect = svg.getBoundingClientRect();
+      const scale = rect.width / W;
+      const tw = tooltip.offsetWidth || 170;
+      const left = px * scale + 14 + tw > rect.width ? px * scale - tw - 14 : px * scale + 14;
+      tooltip.style.left = `${Math.max(0, left)}px`;
+      tooltip.style.top = `${layout[0].top * scale}px`;
+    }
+    function hide() { idx = -1; tooltip.classList.add('aq-hidden'); hoverLine.setAttribute('visibility', 'hidden'); dots.innerHTML = ''; }
+    function nearest(clientX) {
+      const rect = svg.getBoundingClientRect();
+      const xv = x0 + (((clientX - rect.left) / rect.width) * W - M.l) / plotW * (x1 - x0);
+      let a = 0; let b = uniqX.length - 1;
+      while (b - a > 1) { const m = (a + b) >> 1; if (uniqX[m] < xv) a = m; else b = m; }
+      return Math.abs(uniqX[a] - xv) <= Math.abs(uniqX[b] - xv) ? a : b;
+    }
+    svg.addEventListener('pointermove', (e) => show(nearest(e.clientX)));
+    svg.addEventListener('pointerleave', hide);
+    svg.addEventListener('blur', hide);
+    svg.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); show(idx < 0 ? uniqX.length - 1 : idx + (e.key === 'ArrowRight' ? 1 : -1)); }
+      if (e.key === 'Home') { e.preventDefault(); show(0); }
+      if (e.key === 'End') { e.preventDefault(); show(uniqX.length - 1); }
+      if (e.key === 'Escape') hide();
     });
-    svg.addEventListener('mouseleave', () => { tooltip.classList.add('aq-hidden'); hoverLine.setAttribute('stroke-opacity', '0'); });
+
+    // ---------- legend ----------
+    if (config.legend !== false) {
+      legendEl = document.createElement('div');
+      legendEl.className = 'aq-chart-legend';
+      const add = (cls, color, text) => {
+        const item = document.createElement('span');
+        const key = document.createElement('i'); key.className = cls; key.style.setProperty('--c', color);
+        const label = document.createElement('span'); label.textContent = text;
+        item.append(key, label); legendEl.append(item);
+      };
+      const seen = new Set();
+      for (const p of config.panels) for (const se of p.series) if (!seen.has(se.name)) { seen.add(se.name); add(se.dashed ? 'line dashed' : 'line', se.color, se.name); }
+      for (const p of config.panels) for (const se of p.series) if (se.band?.length && se.bandLabel && !seen.has(se.bandLabel)) { seen.add(se.bandLabel); add('zone', se.color, se.bandLabel); }
+      for (const p of config.panels) for (const z of p.zones || []) if (z.legend && shownZones.has(z) && !seen.has(z.legend)) { seen.add(z.legend); add('zone', z.solid || z.fill, z.legend); }
+      if (strip) {
+        const keys = [...new Set(strip.items.map((it) => it.key))];
+        for (const k of Object.keys(strip.styles)) if (keys.includes(k)) add('box', strip.styles[k].color, `${strip.styles[k].label}`);
+      }
+      if (legendEl.childElementCount > 1 || strip) host.after(legendEl); else legendEl = null;
+    }
   }
 
-  return { destroy() { ro.disconnect(); host.innerHTML = ''; } };
+  return { destroy() { ro.disconnect(); legendEl?.remove(); host.innerHTML = ''; } };
+}
+
+// ---------- shared AquaCast helpers ----------
+
+export const DO_COLOR = '#0d9488';
+export const FORECAST_COLOR = '#6250d6';
+export const CONTEXT_COLOR = '#2a78d6';
+
+/** Coloured y-bands for dissolved oxygen, labelled in plain words. */
+export function doZones(rule) {
+  const c = rule?.critical_do_mg_l ?? 3; const w = rule?.watch_boundary_do_mg_l ?? 5;
+  return [
+    { from: w, to: Infinity, fill: '#10b98112', solid: '#10b981', label: `Normal (≥ ${w.toFixed(1)})`, status: 'Normal range', legend: `Normal ≥ ${w.toFixed(1)} mg/L` },
+    { from: c + 1e-9, to: w, fill: '#f59e0b17', solid: '#f59e0b', label: `Below boundary (${c.toFixed(1)}–${w.toFixed(1)})`, status: 'Below the normal boundary', legend: `Below boundary ${c.toFixed(1)}–${w.toFixed(1)} mg/L` },
+    { from: -Infinity, to: c + 1e-9, fill: '#e11d4814', solid: '#e11d48', label: `Critical (≤ ${c.toFixed(1)})`, status: 'Critical', legend: `Critical ≤ ${c.toFixed(1)} mg/L` },
+  ];
+}
+export const doThresholds = (rule) => [{ y: rule?.watch_boundary_do_mg_l ?? 5 }, { y: rule?.critical_do_mg_l ?? 3 }];
+
+export const RISK_STYLES = {
+  NORMAL: { color: '#10b981', label: 'Normal' },
+  WATCH: { color: '#facc15', label: 'Watch' },
+  WARNING: { color: '#f97316', label: 'Warning' },
+  CRITICAL: { color: '#e11d48', label: 'Critical' },
+  DATA_UNAVAILABLE: { color: '#cbd5e1', label: 'No assessment' },
+};
+
+/** Plain-language summary of a DO series: range, time below the boundary / critical, lowest point. */
+export function describeDo(points, rule, { stepMinutes = 10, timeFmt } = {}) {
+  const v = points.filter(valid);
+  if (!v.length) return 'No valid dissolved oxygen readings in this range.';
+  const c = rule?.critical_do_mg_l ?? 3; const w = rule?.watch_boundary_do_mg_l ?? 5;
+  const min = v.reduce((a, b) => (b.y < a.y ? b : a));
+  const max = v.reduce((a, b) => (b.y > a.y ? b : a));
+  const below = v.filter((p) => p.y < w).length * stepMinutes;
+  const crit = v.filter((p) => p.y <= c).length * stepMinutes;
+  const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `${m} min`);
+  const tfmt = timeFmt || ((d) => fmt({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d));
+  let txt = `DO ranged from ${min.y.toFixed(2)} to ${max.y.toFixed(2)} mg/L; the lowest point was at ${tfmt(new Date(min.x))}. `;
+  txt += below ? `It was below the ${w.toFixed(1)} mg/L boundary for about ${dur(below)}` : `It stayed at or above the ${w.toFixed(1)} mg/L boundary the whole time`;
+  txt += crit ? `, including about ${dur(crit)} at or below the critical ${c.toFixed(1)} mg/L.` : below ? ` and never reached the critical ${c.toFixed(1)} mg/L level.` : '.';
+  return txt;
+}
+
+/** Collapse per-bucket risk states (worst state in each bucket) into strip segments. */
+export function riskSegments(rows, bucketMs) {
+  const out = [];
+  for (const r of rows) {
+    const key = r.worst_risk_state || r.risk_state;
+    if (!key) continue;
+    const x0 = new Date(r.bucket_start).getTime(); const x1 = x0 + bucketMs;
+    const last = out[out.length - 1];
+    if (last && last.key === key && Math.abs(+last.x1 - x0) < 1000) last.x1 = x1;
+    else out.push({ x0, x1, key });
+  }
+  return out;
 }

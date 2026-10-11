@@ -42,21 +42,48 @@
 .aq-toast.error { background: #9f1239; }
 .aq-toast svg { flex-shrink: 0; margin-top: 1px; }
 
-/* Charts (dependency-free SVG drawn in the recharts look) */
-.aq-chart { width: 100%; height: 100%; display: block; overflow: visible; }
-.aq-chart text { font-family: Arial, Helvetica, sans-serif; font-size: 11px; fill: #64748b; }
-.aq-chart .grid line { stroke: #e2e8f0; stroke-dasharray: 4 4; }
-.aq-chart .axis-label { font-size: 10px; font-weight: 700; fill: #94a3b8; }
-.aq-chart .ref-label { font-size: 10px; font-weight: 700; }
-.aq-chart-tooltip {
-  position: absolute; pointer-events: none; z-index: 20; min-width: 140px;
-  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px 11px;
-  box-shadow: 0 10px 26px #0f172a1f; font-size: 12px; color: #334155;
-}
-.aq-chart-tooltip strong { display: block; color: #0f172a; font-size: 11px; margin-bottom: 3px; }
-.aq-chart-tooltip span { display: flex; align-items: center; gap: 6px; }
-.aq-chart-tooltip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+/* Charts (dependency-free SVG; one y-scale per panel, status zones, crosshair) */
 .aq-chart-host { position: relative; }
+.aq-chart { width: 100%; height: 100%; display: block; overflow: visible; outline: none; }
+.aq-chart:focus-visible { box-shadow: 0 0 0 3px #14b8a63d; border-radius: 10px; }
+.aq-chart text { font-family: Arial, Helvetica, sans-serif; font-size: 11px; fill: #64748b; }
+.aq-chart .grid line, .aq-chart .vgrid { stroke: #eef2f7; stroke-width: 1; }
+.aq-chart .axis { stroke: #cbd5e1; stroke-width: 1; }
+.aq-chart .tick { font-variant-numeric: tabular-nums; }
+.aq-chart .tick-sub { font-size: 10px; font-weight: 700; fill: #334155; }
+.aq-chart .threshold { stroke: #94a3b8; stroke-width: 1; stroke-dasharray: 5 4; }
+.aq-chart .threshold-tick { font-weight: 700; fill: #334155; }
+.aq-chart .panel-title { font-size: 11px; font-weight: 800; fill: #334155; letter-spacing: .01em; }
+.aq-chart .panel-unit { font-weight: 600; fill: #94a3b8; }
+.aq-chart .zone-label { font-size: 10px; font-weight: 700; fill: #475569; opacity: .85; }
+.aq-chart .end-label { font-size: 11px; font-weight: 800; fill: #0f172a; font-variant-numeric: tabular-nums; }
+.aq-chart .min-label { font-size: 10px; font-weight: 700; fill: #334155; }
+.aq-chart .marker { stroke: #64748b; stroke-width: 1; stroke-dasharray: 3 3; }
+.aq-chart .marker-label { font-size: 10px; font-weight: 800; fill: #334155; }
+.aq-chart .strip-title { font-size: 10px; font-weight: 700; fill: #64748b; }
+.aq-chart .hover-line { stroke: #334155; stroke-opacity: .45; stroke-width: 1; }
+.aq-chart .hit { cursor: crosshair; }
+.aq-chart-tooltip {
+  position: absolute; pointer-events: none; z-index: 20; min-width: 170px; max-width: 270px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 9px 11px;
+  box-shadow: 0 10px 26px #0f172a1f; font-size: 12px; color: #334155; display: grid; gap: 4px;
+}
+.aq-chart-tooltip strong { display: block; color: #64748b; font-size: 11px; font-weight: 700; margin-bottom: 1px; }
+.aq-chart-tooltip span { display: flex; align-items: baseline; gap: 7px; }
+.aq-chart-tooltip i { width: 14px; height: 0; border-top: 2px solid; display: inline-block; transform: translateY(-3px); flex-shrink: 0; }
+.aq-chart-tooltip i.dashed { border-top-style: dashed; }
+.aq-chart-tooltip b { color: #0f172a; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.aq-chart-tooltip em { font-style: normal; color: #64748b; font-size: 11px; }
+.aq-chart-tooltip small { font-size: 11px; font-weight: 700; color: #334155; border-left: 3px solid #cbd5e1; padding-left: 6px; }
+.aq-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 11px; font-weight: 700; color: #475569; }
+.aq-chart-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.aq-chart-legend i { display: inline-block; flex-shrink: 0; }
+.aq-chart-legend i.line { width: 18px; height: 0; border-top: 2px solid var(--c); }
+.aq-chart-legend i.line.dashed { border-top-style: dashed; }
+.aq-chart-legend i.zone { width: 12px; height: 12px; border-radius: 3px; background: color-mix(in srgb, var(--c) 22%, white); border: 1px solid color-mix(in srgb, var(--c) 55%, white); }
+.aq-chart-legend i.box { width: 12px; height: 8px; border-radius: 2px; background: var(--c); }
+.aq-chart-summary { margin: 4px 0 10px; padding: 9px 12px; border-radius: 11px; background: #f8fafc; border: 1px solid #edf2f7; color: #334155; font-size: 12px; line-height: 1.55; }
+.aq-chart-summary strong { color: #0f172a; }
 
 /* User directory states the prototype did not need */
 .user2-status.pending { color: #b45309; background: #f59e0b1a; }
@@ -141,3 +168,5 @@
 .user2-section-header > svg + div, .settings2-section-header > svg + div { margin-right: auto; }
 .user2-section-header > svg, .settings2-section-header > svg { margin-top: 3px; }
 @media (width >= 1200px) { .model2-metric-guide { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.aq-chart-tooltip em.range { font-size: 10px; padding-left: 21px; margin-top: -3px; }
+.aq-chart .min-label, .aq-chart .zone-label, .aq-chart .end-label, .aq-chart .marker-label { paint-order: stroke; stroke: #ffffffd9; stroke-width: 3px; stroke-linejoin: round; }

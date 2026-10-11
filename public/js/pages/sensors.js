@@ -2,7 +2,7 @@
 // health history chart, and the aerator control path (request -> controller ack).
 import { get } from '../api.js';
 import { html, raw, ic, fmtNum, fmtDateTime, fmtTime, ago, titleCase, errorBox, loadingBox, openModal } from '../ui.js';
-import { mountChart } from '../chart.js';
+import { mountChart, CONTEXT_COLOR } from '../chart.js';
 
 const VAR_LABEL = {
   do_mg_l: 'Dissolved O₂', do_saturation_pct: 'DO saturation', water_temp_c: 'Water temp', ph_value: 'pH', light_lux: 'Light',
@@ -60,8 +60,8 @@ export default async function sensors(root) {
         ${edge('cable', 'Sensor Buses', `RS-485 ${h.rs485_bus_status} · I²C ${h.i2c_bus_status}`, 'Bus status reported by the edge reader')}
         ${edge('battery', 'Battery / Supply', h.battery_voltage_v ? `${fmtNum(h.battery_voltage_v, 2)} V` : 'Not measured', `Sync status ${h.sync_status}`)}
       </div>`) : raw('<div class="aq-state"><strong>No health report yet</strong><p>The edge device has not uploaded a system_health row.</p></div>')}
-      <div class="sensors2-section-header" style="margin-top:18px"><div><span class="sensors2-eyebrow">PAST 24 HOURS</span><h3>CPU Temperature &amp; RAM</h3></div></div>
-      <div class="history2-chart-wrapper" id="s-health-chart" style="height:220px"></div>
+      <div class="sensors2-section-header" style="margin-top:18px"><div><span class="sensors2-eyebrow">PAST 24 HOURS</span><h3>CPU Temperature &amp; Memory</h3><p>Each line is reported by the Raspberry Pi with every 10-minute cycle. Values that keep rising may need attention.</p></div></div>
+      <div class="history2-chart-wrapper" id="s-health-chart" style="height:320px"></div>
     </section>
 
     <section class="dashboard-panel sensors2-array-panel">
@@ -116,12 +116,13 @@ export default async function sensors(root) {
 
   const hp = hist?.data || [];
   chart = mountChart(page.querySelector('#s-health-chart'), {
-    ariaLabel: 'Raspberry Pi CPU temperature and RAM usage, past 24 hours',
-    series: [
-      { name: 'CPU temperature (°C)', color: '#e11d48', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.pi_cpu_temp_c })), format: (v) => fmtNum(v, 1) },
-      { name: 'RAM used (%)', color: '#0d9488', axis: 'right', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.ram_used_pct })), format: (v) => fmtNum(v, 0) },
+    ariaLabel: 'Raspberry Pi CPU temperature and memory use, past 24 hours',
+    panels: [
+      { title: 'CPU temperature', unit: '°C', zones: [{ from: 80, to: Infinity, fill: '#e11d4812', solid: '#e11d48', label: 'Throttling risk (≥ 80 °C)', legend: 'CPU ≥ 80 °C: throttling risk' }],
+        thresholds: [{ y: 80 }], series: [{ name: 'CPU temperature', color: '#e2553d', points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.pi_cpu_temp_c })), dots: false, endLabel: true, format: (v) => fmtNum(v, 1) }], yFormat: (v) => fmtNum(v, 0) },
+      { title: 'Memory used', unit: '%', domain: [0, 100], series: [{ name: 'Memory used', color: CONTEXT_COLOR, points: hp.map((x) => ({ x: new Date(x.timestamp_utc), y: x.ram_used_pct })), dots: false, endLabel: true, format: (v) => fmtNum(v, 0) }], yFormat: (v) => fmtNum(v, 0) },
     ],
-    xFormat: (d) => fmtTime(d.toISOString()), tooltipX: (d) => fmtDateTime(d.toISOString()), leftLabel: '°C', yFormat: (v) => fmtNum(v, 0), rightFormat: (v) => `${fmtNum(v, 0)}%`,
+    tooltipX: (d) => fmtDateTime(d.toISOString()),
   });
 
   async function openSensor(s) {

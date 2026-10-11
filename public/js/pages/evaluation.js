@@ -2,10 +2,10 @@
 // plus a predicted-vs-observed chart. Operational metrics only, not thesis results.
 import { get } from '../api.js';
 import { html, raw, ic, fmtNum, fmtDateTime, fmtTime, titleCase, errorBox, loadingBox } from '../ui.js';
-import { mountChart } from '../chart.js';
+import { mountChart, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 
 export default async function evaluation(root) {
-  let chart = null; let scatter = null;
+  let chart = null;
   root.innerHTML = html`<div class="model2-page">${raw(loadingBox('Loading model evaluation…'))}</div>`;
   const page = root.firstElementChild;
   let r;
@@ -65,17 +65,13 @@ export default async function evaluation(root) {
       </div>
     </section>
 
-    <div class="model2-analysis-grid">
-      <section class="dashboard-panel model2-analysis-panel">
-        <div class="model2-analysis-header">${ic('chart-line', 18)}<div><span>PREDICTED VS OBSERVED</span><h3>Last 48 Hours</h3></div>
-          <div class="history2-select-wrapper" style="margin-left:auto"><select id="ev-h">${[30, 60, 90, 120].map((h) => raw(`<option value="${h}" ${h === 60 ? 'selected' : ''}>+${h} min</option>`))}</select>${ic('chevron-down', 14)}</div></div>
-        <div class="history2-chart-wrapper" id="ev-chart" style="height:260px"></div>
-      </section>
-      <section class="dashboard-panel model2-analysis-panel">
-        <div class="model2-analysis-header">${ic('chart-scatter', 18)}<div><span>ERROR OVER TIME</span><h3>Forecast Error (predicted − observed)</h3></div></div>
-        <div class="history2-chart-wrapper" id="ev-err" style="height:260px"></div>
-      </section>
-    </div>
+    <section class="dashboard-panel model2-performance-panel">
+      <div class="model2-section-header"><div><span class="model2-eyebrow">PREDICTED VS MEASURED</span><h3>Forecasts Against Measured DO (last 48 h)</h3>
+        <p>Top: each forecast drawn at the time it was predicting, next to the measured DO. Bottom: how far off it was.</p></div>
+        <div class="history2-select-wrapper"><select id="ev-h">${[30, 60, 90, 120].map((h) => raw(`<option value="${h}" ${h === 60 ? 'selected' : ''}>+${h} min horizon</option>`))}</select>${ic('chevron-down', 14)}</div></div>
+      <p class="aq-chart-summary" id="ev-summary"></p>
+      <div class="history2-chart-wrapper" id="ev-chart" style="height:420px"></div>
+    </section>
 
     <section class="dashboard-panel model2-performance-panel">
       <div class="model2-section-header"><div><span class="model2-eyebrow">MODEL REGISTRY</span><h3>Registered Forecast Models</h3></div></div>
@@ -92,24 +88,39 @@ export default async function evaluation(root) {
   }
 
   async function loadSeries(h) {
-    const host = page.querySelector('#ev-chart'); const errHost = page.querySelector('#ev-err');
+    const host = page.querySelector('#ev-chart');
+    const sum = page.querySelector('#ev-summary');
     host.innerHTML = loadingBox();
     try {
       const pts = (await get(`/api/evaluation/series?horizon=${h}&range=48h`)).data.points;
-      chart?.destroy(); scatter?.destroy();
+      chart?.destroy();
+      if (pts.length) {
+        const errs = pts.map((p) => p.predicted - p.observed);
+        const mae = errs.reduce((a, e) => a + Math.abs(e), 0) / errs.length;
+        const worst = errs.reduce((a, e) => (Math.abs(e) > Math.abs(a) ? e : a), 0);
+        const within = Math.round((errs.filter((e) => Math.abs(e) <= 0.3).length / errs.length) * 100);
+        sum.innerHTML = html`Across ${pts.length} forecasts, the <strong>+${h} min</strong> model was off by <strong>${fmtNum(mae, 2)} mg/L</strong> on average and within ±0.3 mg/L <strong>${within}%</strong> of the time. The largest miss was ${worst > 0 ? '+' : ''}${fmtNum(worst, 2)} mg/L.`;
+      } else sum.textContent = 'No forecast in the last 48 hours has a measured value to compare with yet.';
       const x = (p) => new Date(p.target_timestamp_utc);
-      const common = { xFormat: (d) => fmtTime(d.toISOString()), tooltipX: (d) => fmtDateTime(d.toISOString()) };
-      chart = mountChart(host, { ...common, ariaLabel: `Predicted versus observed DO, +${h} minutes`, leftLabel: 'DO mg/L',
-        series: [
-          { name: 'Observed DO', color: '#0d9488', points: pts.map((p) => ({ x: x(p), y: p.observed })) },
-          { name: `Predicted (+${h} min)`, color: '#8b5cf6', dashed: true, points: pts.map((p) => ({ x: x(p), y: p.predicted })) },
-        ] });
-      scatter = mountChart(errHost, { ...common, ariaLabel: 'Forecast error over time', leftLabel: 'mg/L', allowNegative: true, yPad: 0.05,
-        refLines: [{ y: 0, label: '0', color: '#94a3b8' }],
-        series: [{ name: 'Error (mg/L)', color: '#d97706', points: pts.map((p) => ({ x: x(p), y: Math.round((p.predicted - p.observed) * 1000) / 1000 })), format: (v) => fmtNum(v, 3) }] });
-    } catch (err) { host.innerHTML = errorBox(err); errHost.innerHTML = ''; }
+      chart = mountChart(host, {
+        ariaLabel: `Predicted versus measured DO and forecast error, +${h} minutes, last 48 hours`,
+        panels: [
+          { title: 'Dissolved oxygen at the target time', unit: 'mg/L', weight: 1.6,
+            series: [
+              { name: 'Measured', color: DO_COLOR, points: pts.map((p) => ({ x: x(p), y: p.observed })), dots: false },
+              { name: `Predicted ${h} min earlier`, color: FORECAST_COLOR, dashed: true, points: pts.map((p) => ({ x: x(p), y: p.predicted })), dots: false },
+            ] },
+          { title: 'Forecast miss (predicted − measured)', unit: 'mg/L', weight: 1, allowNegative: true,
+            zones: [{ from: -0.3, to: 0.3, fill: '#10b98114', solid: '#10b981', label: 'Within ±0.3', legend: 'Within ±0.3 mg/L' }],
+            thresholds: [{ y: 0, label: '0' }],
+            series: [{ name: 'Forecast miss', color: '#64748b', width: 1.5, points: pts.map((p) => ({ x: x(p), y: Math.round((p.predicted - p.observed) * 1000) / 1000 })), dots: false,
+              format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}` }] },
+        ],
+        tooltipX: (d) => `Target time ${fmtDateTime(d.toISOString())}`,
+      });
+    } catch (err) { host.innerHTML = errorBox(err); }
   }
   page.querySelector('#ev-h').addEventListener('change', (e) => loadSeries(Number(e.target.value)));
   await loadSeries(60);
-  return () => { chart?.destroy(); scatter?.destroy(); };
+  return () => { chart?.destroy(); };
 }

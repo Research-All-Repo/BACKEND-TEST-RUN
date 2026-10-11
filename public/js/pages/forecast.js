@@ -2,7 +2,7 @@
 // the official risk assessment built from them, interpretation, decision support, forecast-vs-observed.
 import { get, qs } from '../api.js';
 import { html, raw, ic, fmtNum, fmtTime, fmtDateTime, riskKey, riskLabel, doBand, guidanceFor, errorBox } from '../ui.js';
-import { mountChart } from '../chart.js';
+import { mountChart, doZones, doThresholds, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 
 const BAND_LABEL = { normal: 'NORMAL RANGE', watch: 'WATCH RANGE', critical: '≤ CRITICAL THRESHOLD', unknown: 'DATA UNAVAILABLE' };
 const BAND_TEXT = {
@@ -113,22 +113,24 @@ export default async function forecast(root) {
 
     <section class="dashboard-panel forecast-redesign-analysis">
       <div class="forecast-analysis-header">
-        <div class="forecast-analysis-title">${ic('activity', 19)}<div><h3>Forecast vs Observed (last 24 h)</h3><p>Each stored forecast compared with the DO actually measured at its target time.</p></div></div>
+        <div class="forecast-analysis-title">${ic('activity', 19)}<div><h3>How Accurate Were Recent Forecasts? (last 24 h)</h3><p>Each forecast is drawn at the time it was predicting, next to the DO actually measured then.</p></div></div>
         <div class="history2-select-wrapper"><select id="fvo-h">${[30, 60, 90, 120].map((h) => raw(`<option value="${h}" ${h === 60 ? 'selected' : ''}>+${h} min horizon</option>`))}</select>${ic('chevron-down', 15)}</div>
       </div>
-      <div class="forecast-redesign-chart" id="fvo-chart"></div>
+      <p class="aq-chart-summary" id="fvo-summary"></p>
+      <div class="forecast-redesign-chart" id="fvo-chart" style="height:400px"></div>
     </section>
   </div>`;
 
   const origin = new Date(d.origin.forecast_origin_utc);
   charts.push(mountChart(root.querySelector('#fc-chart'), {
-    ariaLabel: 'Forecast progression',
-    series: [{ name: 'Forecast DO', color: '#0284c7', dashed: true, points: [{ x: origin, y: cur, fill: '#0d9488', r: 5 }, ...hz.map((h) => ({ x: new Date(origin.getTime() + h.horizon_minutes * 60000), y: h.forecast_status === 'VALID' ? h.predicted_do_mg_l : null }))] }],
-    refAreas: [{ y1: 0, y2: rule.critical_do_mg_l, fill: '#f43f5e0b' }, { y1: rule.critical_do_mg_l, y2: rule.watch_boundary_do_mg_l, fill: '#f59e0b09' }],
-    refLines: [{ y: rule.watch_boundary_do_mg_l, label: `Boundary ${fmtNum(rule.watch_boundary_do_mg_l, 1)}`, color: '#d97706' }, { y: rule.critical_do_mg_l, label: `Critical ${fmtNum(rule.critical_do_mg_l, 1)}`, color: '#e11d48' }],
+    ariaLabel: 'Forecast progression from now to 120 minutes ahead',
+    panels: [{ title: 'Forecast dissolved oxygen', unit: 'mg/L', includeThresholds: true, zones: doZones(rule), thresholds: doThresholds(rule),
+      series: [{ name: 'Forecast DO', color: FORECAST_COLOR, dashed: true, dots: true,
+        points: [{ x: origin, y: cur, fill: DO_COLOR, r: 5 }, ...hz.map((h) => ({ x: new Date(origin.getTime() + h.horizon_minutes * 60000), y: h.forecast_status === 'VALID' ? h.predicted_do_mg_l : null }))] }] }],
     xTicks: [0, 30, 60, 90, 120].map((m) => new Date(origin.getTime() + m * 60000)),
-    xFormat: (dt) => { const m = Math.round((dt - origin) / 60000); return m <= 0 ? 'Current' : `+${m} min`; },
-    tooltipX: (dt) => fmtDateTime(dt.toISOString()), leftLabel: 'DO mg/L',
+    xFormat: (dt) => { const m = Math.round((dt - origin) / 60000); return m <= 0 ? 'Now' : `+${m} min`; },
+    tooltipX: (dt) => { const m = Math.round((dt - origin) / 60000); return m <= 0 ? `Now (observed) · ${fmtTime(dt.toISOString())}` : `+${m} min forecast · ${fmtTime(dt.toISOString())}`; },
+    legend: false,
   }));
 
   const inspector = root.querySelector('#fc-inspector');
@@ -155,14 +157,31 @@ export default async function forecast(root) {
     fvoHost.innerHTML = '';
     try {
       const { data } = await get(`/api/forecast/history${qs({ horizon: root.querySelector('#fvo-h').value, range: '24h' })}`);
+      const h = Number(root.querySelector('#fvo-h').value);
+      const pairs = data.points.filter((p) => Number.isFinite(p.observed_do_mg_l) && Number.isFinite(p.predicted_do_mg_l));
+      const sumBox = root.querySelector('#fvo-summary');
+      if (pairs.length) {
+        const errs = pairs.map((p) => p.predicted_do_mg_l - p.observed_do_mg_l);
+        const mae = errs.reduce((a, e) => a + Math.abs(e), 0) / errs.length;
+        const within = Math.round((errs.filter((e) => Math.abs(e) <= 0.3).length / errs.length) * 100);
+        const bias = errs.reduce((a, e) => a + e, 0) / errs.length;
+        sumBox.innerHTML = html`Over the last 24 hours the <strong>+${h} min</strong> forecast missed the measured DO by <strong>${fmtNum(mae)} mg/L</strong> on average, and was within ±0.3 mg/L <strong>${within}%</strong> of the time. ${Math.abs(bias) < 0.05 ? 'It shows no consistent over- or under-prediction.' : `It tends to ${bias > 0 ? 'over' : 'under'}-predict by about ${fmtNum(Math.abs(bias))} mg/L.`}`;
+      } else sumBox.textContent = 'No forecast in the last 24 hours has a measured value to compare with yet.';
       fvo = mountChart(fvoHost, {
-        ariaLabel: 'Forecast versus observed DO',
-        series: [
-          { name: 'Observed DO', color: '#0d9488', points: data.points.map((p) => ({ x: new Date(p.target_timestamp_utc), y: p.observed_do_mg_l })), dots: false },
-          { name: 'Forecast DO', color: '#0284c7', dashed: true, points: data.points.map((p) => ({ x: new Date(p.target_timestamp_utc), y: p.predicted_do_mg_l })), dots: false },
+        ariaLabel: `Forecast versus measured DO for the +${h} minute horizon, last 24 hours`,
+        panels: [
+          { title: 'Dissolved oxygen at the target time', unit: 'mg/L', weight: 1.6, zones: doZones(rule), thresholds: doThresholds(rule),
+            series: [
+              { name: 'Measured', color: DO_COLOR, points: pairs.map((p) => ({ x: new Date(p.target_timestamp_utc), y: p.observed_do_mg_l })), dots: false },
+              { name: `Forecast made ${h} min earlier`, color: FORECAST_COLOR, dashed: true, points: pairs.map((p) => ({ x: new Date(p.target_timestamp_utc), y: p.predicted_do_mg_l })), dots: false },
+            ] },
+          { title: 'Forecast miss (forecast − measured)', unit: 'mg/L', weight: 1, allowNegative: true,
+            zones: [{ from: -0.3, to: 0.3, fill: '#10b98114', solid: '#10b981', label: 'Within ±0.3', legend: 'Within ±0.3 mg/L' }],
+            thresholds: [{ y: 0, label: '0' }],
+            series: [{ name: 'Forecast miss', color: '#64748b', width: 1.5, points: pairs.map((p) => ({ x: new Date(p.target_timestamp_utc), y: Math.round((p.predicted_do_mg_l - p.observed_do_mg_l) * 1000) / 1000 })), dots: false,
+              format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}` }] },
         ],
-        refLines: [{ y: rule.watch_boundary_do_mg_l, label: `Boundary ${fmtNum(rule.watch_boundary_do_mg_l, 1)}`, color: '#d97706' }, { y: rule.critical_do_mg_l, label: `Critical ${fmtNum(rule.critical_do_mg_l, 1)}`, color: '#e11d48' }],
-        xFormat: (dt) => fmtTime(dt.toISOString()), tooltipX: (dt) => fmtDateTime(dt.toISOString()), leftLabel: 'DO mg/L',
+        tooltipX: (dt) => `Target time ${fmtDateTime(dt.toISOString())}`,
       });
     } catch (err) { fvoHost.innerHTML = errorBox(err); }
   }

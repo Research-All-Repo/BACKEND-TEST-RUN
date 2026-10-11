@@ -2,7 +2,7 @@
 // operator guidance, manual aeration REQUEST (never direct control), environment, edge health, recent activity.
 import { get, post, qs } from '../api.js';
 import { html, raw, ic, esc, fmtNum, fmtTime, fmtDateTime, ago, riskKey, riskLabel, doBand, guidanceFor, toast, errorBox, busy } from '../ui.js';
-import { mountChart } from '../chart.js';
+import { mountChart, doZones, doThresholds, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 import { openActivityModal, eventIcon, eventLabel } from './shared.js';
 
 const ENV = [
@@ -13,6 +13,26 @@ const ENV = [
   ['air_temp_c', 'wind', 'Ambient Temperature', (v) => `${fmtNum(v, 1)} °C`],
   ['relative_humidity_pct', 'droplets', 'Relative Humidity', (v) => `${fmtNum(v, 0)} %`],
 ];
+
+/** One or two plain sentences: where DO is now, how it moved, what the forecast says. */
+function liveSummary(d, series, doValue, rule) {
+  if (doValue === null || doValue === undefined) return 'No valid dissolved oxygen reading in the latest cycle.';
+  const w = rule.watch_boundary_do_mg_l ?? 5; const c = rule.critical_do_mg_l ?? 3;
+  const where = doValue <= c ? `<strong>at or below the critical ${fmtNum(c, 1)} mg/L level</strong>` : doValue < w ? `<strong>below the ${fmtNum(w, 1)} mg/L normal boundary</strong>` : `in the normal range (at or above ${fmtNum(w, 1)} mg/L)`;
+  let txt = `DO is <strong>${fmtNum(doValue)} mg/L</strong> now, ${where}.`;
+  const first = series.find((r) => r.do_mg_l_status === 'VALID');
+  if (first && series.length > 3) {
+    const diff = doValue - first.do_mg_l;
+    txt += Math.abs(diff) < 0.1 ? ' It has been steady over the last 2 hours.' : ` It ${diff < 0 ? 'fell' : 'rose'} ${fmtNum(Math.abs(diff))} mg/L over the last 2 hours.`;
+  }
+  const fc = d.forecasts.filter((f) => f.forecast_status === 'VALID');
+  if (fc.length) {
+    const lo = fc.reduce((a, b) => (b.predicted_do_mg_l < a.predicted_do_mg_l ? b : a));
+    txt += ` The lowest forecast is ${fmtNum(lo.predicted_do_mg_l)} mg/L in ${lo.horizon_minutes} minutes`;
+    txt += lo.predicted_do_mg_l <= c ? `, <strong>which reaches the critical level</strong>.` : lo.predicted_do_mg_l < w ? ', below the normal boundary but above critical.' : ', still in the normal range.';
+  } else txt += ' No valid forecast is available for this cycle.';
+  return txt;
+}
 
 export default async function live(root, ctx) {
   let chart = null;
@@ -90,12 +110,7 @@ export default async function live(root, ctx) {
               <div><h3>DO Trend &amp; Forecast</h3><p>Recent observed dissolved oxygen followed by the +30, +60, +90, and +120 minute forecasts.</p></div></div>
             <div class="do-trend-live-badge"><span class="do-trend-live-dot"></span>${d.freshness?.state === 'LIVE' ? 'LIVE' : (d.freshness?.state || 'NO DATA').replace('_', ' ')}</div>
           </div>
-          <div class="do-trend-legend">
-            <div class="do-trend-legend-item"><span class="do-trend-line-key observed"></span><span>Observed DO</span></div>
-            <div class="do-trend-legend-item"><span class="do-trend-line-key forecast"></span><span>Forecast DO</span></div>
-            <div class="do-trend-legend-item"><span class="do-trend-threshold-key watch"></span><span>Watch reference ≤ ${fmtNum(rule.watch_boundary_do_mg_l, 1)} mg/L</span></div>
-            <div class="do-trend-legend-item"><span class="do-trend-threshold-key critical"></span><span>Critical reference ≤ ${fmtNum(rule.critical_do_mg_l, 1)} mg/L</span></div>
-          </div>
+          <p class="aq-chart-summary">${raw(liveSummary(d, series, doValue, rule))}</p>
           ${d.critical_outlook?.crossing_expected ? raw(html`<div class="do-trend-outlook">${ic('triangle-alert', 15)}<span><strong>Forecast outlook:</strong> The forecast reaches the configured critical reference by approximately ${outlook}.</span></div>`) : ''}
           <div class="do-trend-chart" id="live-chart"></div>
           <div class="do-trend-value-grid">
@@ -161,16 +176,16 @@ export default async function live(root, ctx) {
     if (o) {
       const originT = new Date(o.timestamp_utc);
       chart = mountChart(chartHost, {
-        ariaLabel: 'Observed and forecast dissolved oxygen',
-        series: [
-          { name: 'Observed DO', color: '#0d9488', points: series.map((r) => ({ x: new Date(r.timestamp_utc), y: r.do_mg_l_status === 'VALID' ? r.do_mg_l : null })), dots: series.length <= 14 },
-          { name: 'Forecast DO', color: '#0284c7', dashed: true, points: [{ x: originT, y: doValue }, ...d.forecasts.map((f) => ({ x: new Date(originT.getTime() + f.horizon_minutes * 60000), y: f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null }))] },
-        ],
-        refAreas: rule.critical_do_mg_l !== null ? [{ y1: 0, y2: rule.critical_do_mg_l, fill: '#f43f5e0d' }, { y1: rule.critical_do_mg_l, y2: rule.watch_boundary_do_mg_l, fill: '#f59e0b0a' }] : [],
-        refLines: rule.critical_do_mg_l !== null ? [{ y: rule.watch_boundary_do_mg_l, label: `Watch ${fmtNum(rule.watch_boundary_do_mg_l, 1)}`, color: '#d97706' }, { y: rule.critical_do_mg_l, label: `Critical ${fmtNum(rule.critical_do_mg_l, 1)}`, color: '#e11d48' }] : [],
-        markerX: { x: originT, label: 'Current' },
-        xFormat: (dt) => fmtTime(dt.toISOString()), tooltipX: (dt) => fmtDateTime(dt.toISOString()),
-        leftLabel: 'DO mg/L',
+        ariaLabel: 'Dissolved oxygen: last 2 hours observed and the next 2 hours forecast',
+        panels: [{ title: 'Dissolved oxygen', unit: 'mg/L', includeThresholds: rule.critical_do_mg_l !== null,
+          zones: rule.critical_do_mg_l !== null ? doZones(rule) : [], thresholds: rule.critical_do_mg_l !== null ? doThresholds(rule) : [],
+          marker: { x: originT, label: 'Now' },
+          series: [
+            { name: 'Observed (last 2 h)', color: DO_COLOR, points: series.map((r) => ({ x: new Date(r.timestamp_utc), y: r.do_mg_l_status === 'VALID' ? r.do_mg_l : null })), dots: false },
+            { name: 'Forecast (next 2 h)', color: FORECAST_COLOR, dashed: true, endLabel: true, dots: true,
+              points: [{ x: originT, y: doValue, fill: DO_COLOR }, ...d.forecasts.map((f) => ({ x: new Date(originT.getTime() + f.horizon_minutes * 60000), y: f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null }))] },
+          ] }],
+        tooltipX: (dt) => { const m = Math.round((dt - originT) / 60000); return `${fmtDateTime(dt.toISOString())}${m > 0 ? ` · forecast +${m} min` : m === 0 ? ' · now' : ''}`; },
       });
     } else chartHost.innerHTML = '<div class="aq-state small"><strong>No observations yet</strong></div>';
 
