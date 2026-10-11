@@ -51,7 +51,7 @@ const config = {
     privateKey: process.env.VAPID_PRIVATE_KEY || '',
     subject: process.env.VAPID_SUBJECT || 'mailto:admin@aquacast.local',
     hookSecret: process.env.PUSH_HOOK_SECRET || '',
-    criticalReminderMinutes: num('PUSH_CRITICAL_REMINDER_MINUTES', 30),
+    criticalReminderMinutes: num('PUSH_CRITICAL_REMINDER_MINUTES', 30), staleMinutes: num('PUSH_STALE_MINUTES', 30),
   },
 
   // Mock edge device (simulates the Raspberry Pi pushing data and acknowledging commands)

@@ -39,6 +39,7 @@ function createApp({ mockEdge = null } = {}) {
 
   // Supabase Database Webhook -> instant phone alerts (secret header; mounted before the CSRF check)
   app.post('/api/push/risk-hook', require('./routes/push').riskHook);
+  app.post('/api/push/stale-check', require('./routes/push').staleHook);
 
   // CSRF defence for cookie sessions: state-changing API calls must carry a custom
   // header (browsers cannot add it cross-site without CORS, which is not enabled)
@@ -71,6 +72,7 @@ function createApp({ mockEdge = null } = {}) {
   app.use('/api/alerts', authed, require('./routes/alerts'));
   app.use('/api/aerator', authed, require('./routes/aerator'));
   app.use('/api/push', authed, require('./routes/push').router);
+  app.use('/api/errors', authed, require('./routes/errors'));
   app.use('/api/settings', authed, admin, require('./routes/settings'));
   app.use('/api/evaluation', authed, admin, require('./routes/evaluation'));
   app.use('/api/users', authed, admin, require('./routes/users'));
@@ -82,12 +84,15 @@ function createApp({ mockEdge = null } = {}) {
   if (!config.isVercel) app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'], index: 'index.html' }));
 
   // Error handler: consistent JSON, no stack traces or secrets to the client
-  // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, _next) => {
     if (err?.type === 'entity.parse.failed') err = E.validation('Request body is not valid JSON.');
     const apiErr = err instanceof ApiError ? err : null;
     if (!apiErr) console.error(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`, err?.stack || err);
     else if (apiErr.status >= 500) console.warn(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} -> ${apiErr.code}`);
+    if (!apiErr || apiErr.status >= 500) { // unexpected problems also go to the built-in error log
+      require('./lib/error-log').logError({ source: 'SERVER', message: apiErr ? `${apiErr.code}: ${apiErr.message}` : (err?.message || String(err)),
+        detail: apiErr ? null : err?.stack, path: `${req.method} ${req.originalUrl}`, userId: req.auth?.user?.id, userAgent: req.get('user-agent') });
+    }
     const status = apiErr ? apiErr.status : 500;
     res.status(status).json({ error: {
       code: apiErr ? apiErr.code : 'INTERNAL_ERROR',

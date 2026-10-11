@@ -1,7 +1,7 @@
 // Pieces shared by several pages: activity recording modal, pagination, icons per event type.
 import { get, post } from '../api.js';
 import { html, raw, ic, openModal, formData, toast, localInputToIso, busy, fmtNum, fmtDateTime, fmtTime } from '../ui.js';
-import { doZones, doThresholds, DO_COLOR, FORECAST_COLOR } from '../chart.js';
+import { doThresholds, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 
 /** Icon for a management event / activity feed row. */
 export function eventIcon(a) {
@@ -25,7 +25,7 @@ const EVENT_LABELS = {
   AERATOR_ON_REQUEST: 'Aerator ON Request', AERATOR_OFF_REQUEST: 'Aerator OFF Request', RISK_WARNING: 'System Warning', RISK_CRITICAL: 'Critical Warning',
   ALERT_ACKNOWLEDGED: 'Alert Acknowledgement', STUDY_METADATA_UPDATED: 'Settings Update', AERATOR_MODE_REQUESTED: 'Aerator Mode Request',
   USER_ACCESS_APPROVE: 'User Approved', USER_ACCESS_REJECT: 'Request Rejected', USER_ACCESS_SUSPEND: 'User Suspended', USER_ACCESS_REACTIVATE: 'User Reactivated',
-  USER_ACCESS_REVOKE: 'Access Revoked', USER_ACCESS_CHANGE_ROLE: 'Role Changed', USER_DETAILS_UPDATED: 'User Details Updated', MANAGEMENT_EVENT_CLOSED: 'Activity Closed', MOCK_EDGE_STATE_CHANGED: 'Simulator Online/Offline', ALERT_TEST_BROADCAST: 'Test Alert Sent', PUSH_RISK_SENT: 'Phone Alert Sent',
+  USER_ACCESS_REVOKE: 'Access Revoked', USER_ACCESS_CHANGE_ROLE: 'Role Changed', USER_DETAILS_UPDATED: 'User Details Updated', MANAGEMENT_EVENT_CLOSED: 'Activity Closed', MOCK_EDGE_STATE_CHANGED: 'Simulator Online/Offline', ALERT_TEST_BROADCAST: 'Test Alert Sent', PUSH_RISK_SENT: 'Phone Alert Sent', PUSH_STALE_SENT: 'No-Data Alert Sent', CALIBRATION_MODE_CHANGED: 'Calibration Mode Changed',
 };
 export const eventLabel = (t) => EVENT_LABELS[t] || String(t || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -141,4 +141,21 @@ export function accuracyChartConfig(pairs, horizon, rule, { tol = 0.3, label = '
       ] }],
     tooltipX: (d) => `${fmtDateTime(d.toISOString())} (forecast made at ${fmtTime(new Date(d.getTime() - horizon * 60000).toISOString())})`,
   };
+}
+
+/** One plain sentence for system events whose details are stored as JSON. */
+export function describeEvent(a) {
+  let d = null;
+  try { d = typeof a.details === 'string' ? JSON.parse(a.details) : a.details; } catch { /* plain text */ }
+  if (d && typeof d === 'object') {
+    switch (a.event_type) {
+      case 'MOCK_EDGE_STATE_CHANGED': return `Simulated edge device set ${d.offline ? 'OFFLINE' : 'ONLINE'} (test data only).`;
+      case 'PUSH_RISK_SENT': return `${d.reminder ? 'Reminder: ' : ''}${d.state} alert (DO ${d.do}) pushed to ${d.sent ?? 0} phone(s)${d.failed ? `, ${d.failed} failed` : ''}.`;
+      case 'ALERT_TEST_BROADCAST': return `Test ${d.level} alert sent to all signed-in devices (no real reading).`;
+      case 'PUSH_STALE_SENT': return d.recovered_at ? `No readings for ${d.minutes_without_data} min; phones were alerted, and told when readings resumed.` : `No readings for ${d.minutes_without_data} min; ${d.sent ?? 0} phone(s) alerted.`;
+      case 'CALIBRATION_MODE_CHANGED': return d.enabled ? `Calibration mode ON: readings marked uncalibrated, risk alerts paused.${d.note ? ` Note: ${d.note}` : ''}` : 'Calibration mode OFF: alerts active again.';
+      default: break;
+    }
+  }
+  return typeof a.details === 'string' && a.details ? a.details : '—';
 }

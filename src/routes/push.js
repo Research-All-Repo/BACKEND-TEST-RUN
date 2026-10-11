@@ -5,6 +5,7 @@ const config = require('../config');
 const push = require('../lib/push');
 const { E } = require('../lib/errors');
 const { evaluateAndNotify } = require('../services/risk-push');
+const { checkStaleAndNotify } = require('../services/stale-push');
 
 /** Signed-in routes: a device registers / removes its push subscription. */
 const router = express.Router();
@@ -34,14 +35,30 @@ router.post('/unsubscribe', async (req, res, next) => {
  * (it is called server-to-server by Supabase). It only re-reads the latest risk from the
  * database and decides; the request body is ignored, so it cannot inject alerts.
  */
+function hookSecretOk(req) {
+  const given = String(req.get('x-aquacast-hook-secret') || '');
+  const want = config.push.hookSecret;
+  return !!want && given.length === want.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want));
+}
+
 async function riskHook(req, res, next) {
   try {
-    const given = String(req.get('x-aquacast-hook-secret') || '');
-    const want = config.push.hookSecret;
-    const ok = want && given.length === want.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want));
-    if (!ok) throw E.forbidden();
-    res.json({ data: await evaluateAndNotify() });
+    if (!hookSecretOk(req)) throw E.forbidden();
+    const risk = await evaluateAndNotify();
+    const stale = await checkStaleAndNotify().catch((e) => ({ error: e.message })); // "readings are back"
+    res.json({ data: { ...risk, stale } });
   } catch (err) { next(err); }
 }
 
-module.exports = { router, riskHook };
+/**
+ * POST /api/push/stale-check  (Supabase pg_cron every 5 min, migration 005; same secret header)
+ * Sends one "no new readings" alert per outage and one "readings are back" alert after it.
+ */
+async function staleHook(req, res, next) {
+  try {
+    if (!hookSecretOk(req)) throw E.forbidden();
+    res.json({ data: await checkStaleAndNotify() });
+  } catch (err) { next(err); }
+}
+
+module.exports = { router, riskHook, staleHook };

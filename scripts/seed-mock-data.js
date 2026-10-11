@@ -9,7 +9,7 @@ const config = require('../src/config');
 config.validate();
 const { getAdminClient } = require('../src/lib/supabase');
 const G = require('../src/mock/generator');
-const { ensureReference, pushCycles, insertBatches, check } = require('../src/mock/edge-simulator');
+const { ensureReference, pushCycles, insertBatches } = require('../src/mock/edge-simulator');
 
 async function main() {
   const arg = process.argv.indexOf('--days');

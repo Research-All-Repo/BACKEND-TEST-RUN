@@ -1,0 +1,23 @@
+# Runs on every push and pull request: lint, unit tests, and a check that the
+# generated dark theme matches the stylesheets. (The API tests need a running backend
+# and Supabase, so they stay a local check: `npm test`.)
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:unit
+      - name: Dark theme is up to date
+        run: |
+          npm run build:dark
+          git diff --exit-code public/css/aquacast-dark.css || (echo "::error::Run 'npm run build:dark' and commit public/css/aquacast-dark.css" && exit 1)

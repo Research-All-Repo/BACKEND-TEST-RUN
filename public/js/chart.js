@@ -602,10 +602,10 @@ export function mountChart(host, rawConfig) {
         }
         if (se.markers === 'ring') { // a small hollow dot on each reading, when there is room for them
           const vp = se.points.filter(valid);
-          if (vp.length && plotW / vp.length >= 9) for (const pt of vp) s += `<circle cx="${sx(+pt.x).toFixed(1)}" cy="${sy(pt.y).toFixed(1)}" r="3.2" fill="#fff" stroke="${se.color}" stroke-width="2"/>`;
+          if (vp.length && plotW / vp.length >= 9) for (const pt of vp) s += `<circle cx="${sx(+pt.x).toFixed(1)}" cy="${sy(pt.y).toFixed(1)}" r="3.2" style="fill:var(--chart-surface,#fff)" stroke="${se.color}" stroke-width="2"/>`;
         }
         if (se.dots ?? se.points.length <= 14) {
-          for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x)}" cy="${sy(pt.y)}" r="${pt.r || 4}" fill="${pt.fill || se.color}" stroke="#fff" stroke-width="2"/>`;
+          for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x)}" cy="${sy(pt.y)}" r="${pt.r || 4}" fill="${pt.fill || se.color}" style="stroke:var(--chart-surface,#fff)" stroke-width="2"/>`;
         }
         const f = se.format || ((v) => v.toFixed(2));
         // value printed next to chosen points (pt.label), kept inside the plot
@@ -627,7 +627,7 @@ export function mountChart(host, rawConfig) {
         if (se.endLabel && !R) {
           const last = [...se.points].reverse().find(valid);
           if (last) {
-            s += `<circle cx="${sx(+last.x)}" cy="${sy(last.y)}" r="4" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;
+            s += `<circle cx="${sx(+last.x)}" cy="${sy(last.y)}" r="4" fill="${se.color}" style="stroke:var(--chart-surface,#fff)" stroke-width="2"/>`;
             s += `<text class="end-label" x="${sx(+last.x) + 8}" y="${sy(last.y) + 4}">${esc(f(last.y))}</text>`;
           }
         }
@@ -645,7 +645,7 @@ export function mountChart(host, rawConfig) {
           const hits = (ty) => zoneBoxes.some((zb) => lx < zb.x1 && lx + tw > zb.x0 && ty - 10 < zb.y1 && ty + 2 > zb.y0);
           let ty = my + 22 < top + h ? my + 19 : my - 10;
           if (hits(ty) && !hits(my - 10) && my - 20 > top) ty = my - 10;
-          s += `<circle cx="${mx}" cy="${my}" r="5" fill="#fff" stroke="${se.color}" stroke-width="2"/>`;
+          s += `<circle cx="${mx}" cy="${my}" r="5" style="fill:var(--chart-surface,#fff)" stroke="${se.color}" stroke-width="2"/>`;
           if (!narrow) s += `<text class="min-label" x="${lx}" y="${ty}">${esc(label)}</text>`;
         }
       }
@@ -720,7 +720,7 @@ export function mountChart(host, rawConfig) {
             ? se.points.find((q) => xv >= +q.x - se.bucketMs / 2 && xv < +q.x + se.bucketMs / 2)
             : se.points.find((q) => +q.x === xv);
           if (!valid(pt)) continue;
-          dotSvg += `<circle cx="${px}" cy="${L.scaleOf(se)(pt.y)}" r="4.5" fill="${se.color}" stroke="#fff" stroke-width="2"/>`;
+          dotSvg += `<circle cx="${px}" cy="${L.scaleOf(se)(pt.y)}" r="4.5" fill="${se.color}" style="stroke:var(--chart-surface,#fff)" stroke-width="2"/>`;
           const row = document.createElement('span');
           const key = document.createElement('i'); key.className = se.dashed ? 'dashed' : ''; key.style.borderColor = se.color;
           const fv = se.format || ((v) => v.toFixed(2));

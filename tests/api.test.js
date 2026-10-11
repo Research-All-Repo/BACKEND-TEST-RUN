@@ -237,6 +237,40 @@ test('mode change: staff cannot, admin can; manual commands refused until MANUAL
   assert.ok(ack, 'controller acknowledges MANUAL');
 });
 
+test('calibration mode: admin toggles it, live shows it, risk alerts pause, staff cannot change it', async () => {
+  const on = await adminC.call('PUT', '/api/settings/calibration', { enabled: true, note: 'test run' });
+  assert.equal(on.status, 200, JSON.stringify(on.json));
+  assert.equal(on.json.data.enabled, true);
+  const live = await adminC.get('/api/live');
+  assert.equal(live.json.data.calibration.enabled, true);
+  const pulse = await adminC.get('/api/live/pulse');
+  assert.equal(pulse.json.data.calibration, true);
+  const staff = await staffC.call('PUT', '/api/settings/calibration', { enabled: false });
+  assert.equal(staff.status, 403);
+  const bad = await adminC.call('PUT', '/api/settings/calibration', { enabled: 'yes' });
+  assert.equal(bad.status, 400);
+  const off = await adminC.call('PUT', '/api/settings/calibration', { enabled: false });
+  assert.equal(off.json.data.enabled, false);
+});
+
+test('error log: browsers report, only admins can read', async () => {
+  const msg = `test error ${RUN}`;
+  const r = await staffC.post('/api/errors', { message: msg, detail: 'stack', path: '/#live' });
+  assert.equal(r.status, 202);
+  const list = await adminC.get('/api/errors');
+  assert.equal(list.status, 200);
+  assert.ok(list.json.data.some((e) => e.message === msg && e.source === 'BROWSER'), 'reported error is listed');
+  assert.equal((await staffC.get('/api/errors')).status, 403);
+  assert.equal((await new Client().post('/api/errors', { message: 'x' })).json.error.code, 'SESSION_MISSING');
+});
+
+test('push hooks refuse calls without the shared secret', async () => {
+  for (const path of ['/api/push/risk-hook', '/api/push/stale-check']) {
+    const r = await new Client().call('POST', path, {}, { 'x-aquacast-hook-secret': 'wrong' });
+    assert.equal(r.status, 403, path);
+  }
+});
+
 test('admin guardrails: cannot modify self; reason required to suspend', async () => {
   const me = (await adminC.get('/api/auth/session')).json.data.user.id;
   const r = await adminC.post(`/api/users/${me}/suspend`, { reason: 'x' });

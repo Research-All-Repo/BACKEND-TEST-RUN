@@ -1,7 +1,7 @@
 // Sensors & Device: sensor registry + calibration status, Raspberry Pi edge health,
 // health history chart, and the aerator control path (request -> controller ack).
 import { get } from '../api.js';
-import { html, raw, ic, fmtNum, fmtDateTime, fmtTime, ago, titleCase, errorBox, loadingBox, openModal } from '../ui.js';
+import { html, raw, ic, fmtNum, fmtDateTime, ago, titleCase, errorBox, loadingBox, openModal } from '../ui.js';
 import { mountChart, CONTEXT_COLOR } from '../chart.js';
 
 const VAR_LABEL = {
@@ -11,7 +11,6 @@ const VAR_LABEL = {
 const SENSOR_ICON = (t) => (/oxygen|dissolved|do/i.test(t) ? 'droplets' : /ph/i.test(t) ? 'flask-conical' : /light|lux/i.test(t) ? 'sun'
   : /humid|sht|air/i.test(t) ? 'thermometer' : /press|baro|bmp/i.test(t) ? 'gauge' : 'microchip');
 const DATA_CHIP = { OK: ['available', 'Reading OK'], DEGRADED: ['pending', 'Partly invalid'], FAULT: ['prototype', 'Invalid reading'], NO_DATA: ['pending', 'No data'], NOT_MAPPED: ['prototype', 'Not mapped'] };
-const busChip = (s) => (s === 'OK' ? 'available' : s === 'DEGRADED' ? 'pending' : 'prototype');
 
 export default async function sensors(root) {
   let chart = null;

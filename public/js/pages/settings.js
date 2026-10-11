@@ -1,8 +1,8 @@
 // System Settings (ADMIN): only settings that exist in the database.
 // study_metadata (editable fields), aerator mode request (controller must acknowledge),
 // locked study guardrails (read-only), and mock-edge tools when the simulator is enabled.
-import { get, post, patch } from '../api.js';
-import { html, raw, ic, esc, fmtNum, fmtDateTime, ago, titleCase, isoToLocalInput, localInputToIso, toast, errorBox, loadingBox, openModal, busy } from '../ui.js';
+import { get, post, patch, put } from '../api.js';
+import { html, raw, ic, esc, fmtNum, fmtDateTime, ago, isoToLocalInput, localInputToIso, toast, errorBox, loadingBox, openModal, busy } from '../ui.js';
 
 const TEXT_FIELDS = [
   ['site_description', 'Site description', 'Station / pond description shown across the dashboard.', true],
@@ -21,14 +21,15 @@ export default async function settings(root, ctx) {
   let pollT;
 
   async function load() {
-    let s; let dev = null;
+    let s; let dev = null; let calib = null; let errs = null;
     try {
-      [s, dev] = await Promise.all([get('/api/settings'), get('/api/dev/mock-edge').catch(() => null)]);
+      [s, dev, calib, errs] = await Promise.all([get('/api/settings'), get('/api/dev/mock-edge').catch(() => null),
+        get('/api/settings/calibration').catch(() => null), get('/api/errors').catch(() => null)]);
     } catch (err) { page.innerHTML = errorBox(err); return; }
-    render(s.data, dev?.data || null);
+    render(s.data, dev?.data || null, calib?.data || null, errs?.data || null);
   }
 
-  function render(d, dev) {
+  function render(d, dev, calib, errs) {
     const { study, aerator: a, locked } = d;
     const rule = locked.risk_rule;
     const area = study ? study.pond_length_m * study.pond_width_m : null;
@@ -91,6 +92,24 @@ export default async function settings(root, ctx) {
         </div>
         <div class="settings2-storage-note">${ic(a.mode.acknowledged ? 'check-check' : 'clock', 15)}<p><strong>${a.mode.acknowledged ? 'In sync.' : 'Waiting for acknowledgement.'}</strong> ${a.mode.status_text} Manual ON/OFF from Live Status only works when MANUAL is acknowledged.</p></div>`)
         : raw(`<div class="aq-state"><strong>Aerator settings not initialised</strong><p>${esc(a?.message || '')}</p></div>`)}
+      </section>
+
+      <section class="dashboard-panel settings2-storage-panel">
+        <div class="settings2-section-header">${ic('wrench', 18)}<div><span class="settings2-eyebrow">SENSOR CALIBRATION</span><h3>Calibration Mode</h3>
+          <p>Turn this on while the DO probe is being calibrated or tested. Every dashboard then marks readings as uncalibrated, and no risk or "no data" alarms are sent (test alerts still work). Turn it off when the probe is ready.</p></div></div>
+        ${calib && calib.installed !== false ? raw(html`<div class="aq-calib-row ${calib.enabled ? 'on' : ''}">
+          <div><strong>${calib.enabled ? 'On: alerts are paused' : 'Off: alerts are active'}</strong><p>${calib.enabled ? `Turned on${calib.by ? ` by ${calib.by}` : ''}${calib.since ? ` at ${fmtDateTime(calib.since)}` : ''}.${calib.note ? ` Note: ${calib.note}` : ''}` : 'Readings are treated as real and trigger alerts.'}</p></div>
+          <button type="button" class="aq-btn ${calib.enabled ? 'primary' : 'aq-test-warning'}" id="calib-toggle">${ic(calib.enabled ? 'bell-ring' : 'wrench', 15)}${calib.enabled ? 'Turn off (resume alerts)' : 'Turn on calibration mode'}</button></div>`)
+          : raw('<div class="settings2-storage-note"><p>Run <strong>supabase/migrations/004_reliability.sql</strong> in Supabase to enable calibration mode.</p></div>')}
+      </section>
+
+      <section class="dashboard-panel settings2-storage-panel">
+        <div class="settings2-section-header">${ic('bug', 18)}<div><span class="settings2-eyebrow">ERROR LOG</span><h3>Recent Errors</h3>
+          <p>Unexpected problems from the server and from users' browsers, newest first (kept 30 days). An empty list is good news.</p></div></div>
+        ${errs === null ? raw('<div class="settings2-storage-note"><p>The error log could not be loaded. Run <strong>004_reliability.sql</strong> in Supabase if you have not yet.</p></div>')
+          : errs.length ? raw(html`<div class="aq-error-list">${errs.slice(0, 20).map((e) => raw(html`<details class="aq-error-item"><summary><span class="aq-error-src ${e.source.toLowerCase()}">${e.source === 'SERVER' ? 'Server' : 'Browser'}</span><strong>${e.message}</strong><time>${fmtDateTime(e.created_at)}</time></summary>
+            <div class="aq-error-detail"><p>${e.path || ''}</p>${e.detail ? raw(html`<pre>${e.detail}</pre>`) : ''}<p class="aq-muted">${e.user_agent || ''}</p></div></details>`))}</div>`)
+          : raw(`<div class="aq-state small"><strong>No errors recorded</strong><p>Nothing has gone wrong in the last 30 days.</p></div>`)}
       </section>
 
       <section class="dashboard-panel settings2-storage-panel">
@@ -158,6 +177,21 @@ export default async function settings(root, ctx) {
         ctx.refreshLive();
       } catch (err) { toast(err.message, 'error'); }
     })));
+    page.querySelector('#calib-toggle')?.addEventListener('click', (e) => {
+      const turnOn = !calib.enabled;
+      const go = (note) => busy(e.currentTarget, async () => {
+        try { const r = await put('/api/settings/calibration', { enabled: turnOn, note }); toast(r.meta.message, 'success'); await load(); ctx.refreshLive(); } catch (err) { toast(err.message, 'error'); }
+      });
+      if (!turnOn) { go(null); return; }
+      openModal({ overlayClass: 'settings2-modal-overlay', modalClass: 'settings2-modal',
+        content: html`<div class="settings2-modal-header"><div><span>SENSOR CALIBRATION</span><h3>Pause alerts while calibrating?</h3>
+          <p>All dashboards will show readings as uncalibrated and no risk or "no data" alarms will be sent until you turn this off.</p></div>
+          <button type="button" data-close aria-label="Close">${ic('x', 18)}</button></div>
+          <div class="settings2-modal-body"><label class="aq-field">Note for the team (optional)<input id="calib-note" maxlength="300" placeholder="e.g. 2-point calibration of the DO probe"></label></div>
+          <div class="settings2-modal-actions"><button type="button" class="secondary" data-close>Cancel</button><button type="button" class="danger" id="calib-go">Turn on calibration mode</button></div>`,
+        onMount: (m, close) => m.querySelector('#calib-go').addEventListener('click', () => { const note = m.querySelector('#calib-note').value.trim() || null; close(); go(note); }),
+      });
+    });
     page.querySelector('#dev-offline')?.addEventListener('click', (e) => busy(e.currentTarget, async () => {
       try { await post('/api/dev/mock-edge', { offline: !dev.offline }); toast(dev.offline ? 'Simulated edge is back online.' : 'Simulated edge is now offline.', 'success'); await load(); ctx.refreshLive(); } catch (err) { toast(err.message, 'error'); }
     }));

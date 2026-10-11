@@ -19,7 +19,7 @@ function minutesBetween(a, b) {
  */
 function parseRange(query, { defaultHours = 24, maxDays = 92 } = {}) {
   const now = new Date();
-  let to = query.to ? new Date(query.to) : now;
+  const to = query.to ? new Date(query.to) : now;
   let from;
   if (query.from) {
     from = new Date(query.from);
@@ -85,6 +85,7 @@ function ruleReference(ruleVersion) {
 
 function sanitizeText(value, max = 1000) {
   if (value === undefined || value === null) return null;
+  // eslint-disable-next-line no-control-regex -- strips control characters on purpose
   const s = String(value).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim();
   return s ? s.slice(0, max) : null;
 }

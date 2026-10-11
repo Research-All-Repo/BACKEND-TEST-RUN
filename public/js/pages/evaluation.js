@@ -1,7 +1,7 @@
 // Model Evaluation (ADMIN): registered forecast models and operational accuracy per horizon,
 // plus a predicted-vs-observed chart. Operational metrics only, not thesis results.
 import { get } from '../api.js';
-import { html, raw, ic, fmtNum, fmtDateTime, fmtTime, titleCase, errorBox, loadingBox } from '../ui.js';
+import { html, raw, ic, fmtNum, fmtDateTime, titleCase, errorBox, loadingBox } from '../ui.js';
 import { mountChart } from '../chart.js';
 import { accuracyChartConfig } from './shared.js';
 
@@ -102,7 +102,6 @@ export default async function evaluation(root, ctx) {
         const within = Math.round((errs.filter((e) => Math.abs(e) <= 0.3).length / errs.length) * 100);
         sum.innerHTML = html`Across ${pts.length} forecasts, the <strong>+${h} min</strong> model was off by <strong>${fmtNum(mae, 2)} mg/L</strong> on average and within ±0.3 mg/L <strong>${within}%</strong> of the time. The largest miss was ${worst > 0 ? '+' : ''}${fmtNum(worst, 2)} mg/L.`;
       } else sum.textContent = 'No forecast in the last 48 hours has a measured value to compare with yet.';
-      const x = (p) => new Date(p.target_timestamp_utc);
       chart = mountChart(host, accuracyChartConfig(pts.map((p) => ({ t: p.target_timestamp_utc, measured: p.observed, forecast: p.predicted })), h, ctx?.live?.()?.rule_reference, { label: 'Prediction' }));
     } catch (err) { host.innerHTML = errorBox(err); }
   }

@@ -1,9 +1,9 @@
 // Live Status: latest observation + official risk, condition overview, DO trend & forecast chart,
 // operator guidance, manual aeration REQUEST (never direct control), environment, edge health, recent activity.
 import { get, post, qs } from '../api.js';
-import { html, raw, ic, esc, fmtNum, fmtTime, fmtDateTime, ago, riskKey, riskLabel, doBand, guidanceFor, toast, errorBox, busy } from '../ui.js';
-import { mountChart, doZones, doThresholds, doDomain, DO_COLOR, FORECAST_COLOR } from '../chart.js';
-import { openActivityModal, eventIcon, eventLabel } from './shared.js';
+import { html, raw, ic, icon, esc, fmtNum, fmtTime, fmtDateTime, ago, riskKey, riskLabel, doBand, guidanceFor, toast, errorBox, busy } from '../ui.js';
+import { mountChart, doDomain, DO_COLOR, FORECAST_COLOR } from '../chart.js';
+import { openActivityModal, eventIcon, eventLabel, describeEvent } from './shared.js';
 
 const ENV = [
   ['water_temp_c', 'thermometer', 'Water Temperature', (v) => `${fmtNum(v, 1)} °C`],
@@ -36,6 +36,28 @@ async function forecastAccuracy() {
   });
   accCache = { at: Date.now(), rmse };
   return rmse;
+}
+
+// phone: secondary Live sections start folded so the status, chart and aerator come first
+const collapseState = new Map();
+function setupCollapsibles(scope) {
+  const phone = window.matchMedia('(max-width: 760px)').matches;
+  scope.querySelectorAll('.aq-collapsible').forEach((el) => {
+    const key = el.dataset.collapse;
+    const head = el.firstElementChild;
+    if (!head) return;
+    const collapsed = collapseState.has(key) ? collapseState.get(key) : phone;
+    el.classList.toggle('collapsed', collapsed);
+    head.classList.add('aq-collapse-head');
+    head.setAttribute('role', 'button'); head.setAttribute('tabindex', '0'); head.setAttribute('aria-expanded', String(!collapsed));
+    const toggle = (e) => {
+      if (e.target.closest('button, a') && e.target.closest('button, a') !== head) return; // buttons inside the header keep working
+      const now = !el.classList.contains('collapsed');
+      el.classList.toggle('collapsed', now); collapseState.set(key, now); head.setAttribute('aria-expanded', String(!now));
+    };
+    head.addEventListener('click', toggle);
+    head.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); } });
+  });
 }
 
 /** "-2h", "-30m", "NOW", "+1.5h" */
@@ -105,37 +127,70 @@ export default async function live(root, ctx) {
     const trend = d.trend;
     const trendCls = trend?.slope_mg_l_per_hr <= -0.3 ? 'critical-text' : trend?.slope_mg_l_per_hr < -0.05 ? 'warning-text' : '';
 
+    const fc = d.forecasts.filter((f) => f.forecast_status === 'VALID');
+    const lowest = fc.length ? fc.reduce((m, f) => (f.predicted_do_mg_l < m.predicted_do_mg_l ? f : m)) : null;
+    const calib = d.calibration?.enabled;
+    function heroHtml() {
+      const RISK_ICON = { normal: 'circle-check', watch: 'eye', warning: 'triangle-alert', critical: 'octagon-alert', unknown: 'circle-help' };
+      const FRESH = { LIVE: 'Live', SYNC_DELAYED: 'Sync delayed', OFFLINE: 'Offline', NO_DATA: 'No data' };
+      const slope = trend?.slope_mg_l_per_hr;
+      const urgent = risk === 'WARNING' || risk === 'CRITICAL';
+      const fresh = d.freshness?.state || 'NO_DATA';
+      return html`<section class="aq-hero aq-hero-${rk}" aria-label="Pond status">
+        <div class="aq-hero-main">
+          <div class="aq-hero-top">
+            <span class="aq-hero-risk">${ic(RISK_ICON[rk] || 'circle-help', 16)}${riskLabel(risk)}</span>
+            <span class="aq-hero-fresh fresh-${fresh.toLowerCase()}"><span class="aq-hero-dot"></span>${FRESH[fresh] || fresh}${o ? ` · updated ${ago(o.timestamp_utc).toLowerCase()}` : ''}</span>
+            ${calib ? raw(`<span class="aq-hero-calib">${icon('wrench', 13)}Uncalibrated · alerts paused</span>`) : ''}
+          </div>
+          <div class="aq-hero-reading">
+            <div class="aq-hero-value"><span class="aq-hero-label">Dissolved oxygen now</span>
+              <div class="aq-hero-number"><strong class="live-do-value ${doClass}">${doValue === null ? '--' : fmtNum(doValue)}</strong><span>mg/L</span></div></div>
+            <div class="aq-hero-trend ${trendCls}">${ic(slope === null || slope === undefined ? 'minus' : slope < -0.05 ? 'arrow-down-right' : slope > 0.05 ? 'arrow-up-right' : 'move-right', 22)}
+              <div><b>${trend?.label || 'Not enough data'}</b><small>${slope === null || slope === undefined ? 'needs 3 readings in 1 h' : `${slope > 0 ? '+' : ''}${fmtNum(slope)} mg/L per hour`}</small></div></div>
+          </div>
+          ${doR && !doR.usable && o ? raw(html`<p class="aq-hero-note">DO reading not usable this cycle (${doR.quality_status.replace(/_/g, ' ')}).</p>`) : ''}
+          ${d.risk && !d.risk.available && o ? raw(html`<p class="aq-hero-note">${d.risk.message}</p>`) : ''}
+          ${o ? raw(heroSpark()) : ''}
+          <div class="aq-hero-guidance"><strong>${g.title}</strong><p>${g.description}</p></div>
+          <div class="aq-hero-actions">
+            ${urgent ? raw(`<button type="button" class="aq-hero-btn danger" data-hero="aeration">${icon('fan', 17)}Go to aeration control</button><button type="button" class="aq-hero-btn" data-go="forecast">View forecast${icon('arrow-right', 16)}</button>`)
+              : raw(`<button type="button" class="aq-hero-btn primary" data-go="forecast">View 2-hour forecast${icon('arrow-right', 16)}</button>`)}
+            ${d.active_alerts ? raw(`<button type="button" class="aq-hero-btn" data-go="alerts">${icon('bell', 16)}${d.active_alerts} active alert${d.active_alerts > 1 ? 's' : ''}</button>`) : ''}
+          </div>
+        </div>
+        <div class="aq-hero-side">
+          <div class="aq-hero-metric"><span>${ic('arrow-down-to-line', 14)}Lowest in next 2 h</span><strong class="${lowest ? (doBand(lowest.predicted_do_mg_l, rule) === 'critical' ? 'critical-text' : doBand(lowest.predicted_do_mg_l, rule) === 'watch' ? 'warning-text' : '') : ''}">${lowest ? `${fmtNum(lowest.predicted_do_mg_l)} mg/L` : '--'}</strong><small>${lowest ? `at +${lowest.horizon_minutes} min` : 'No valid forecast'}</small></div>
+          <div class="aq-hero-metric"><span>${ic('clock', 14)}Critical outlook</span><strong>${outlook}</strong><small>Below ${fmtNum(rule.critical_do_mg_l, 1)} mg/L is critical</small></div>
+          <button type="button" class="aq-hero-metric aq-hero-link" data-go="alerts"><span>${ic('bell', 14)}Active alerts</span><strong>${d.active_alerts}</strong><small>${d.active_alerts ? 'Tap to review' : 'Nothing to review'}</small></button>
+          <div class="aq-hero-metric"><span>${ic('radio', 14)}Latest reading</span><strong>${o ? fmtTime(o.timestamp_utc) : '--'}</strong><small>${o ? `${o.record_status.toLowerCase()} · every 10 min` : 'Waiting for first cycle'}</small></div>
+        </div>
+      </section>`;
+    }
+    /** Small two-hour picture: measured (solid) up to now, forecast (dotted) after, boundary lines. */
+    function heroSpark() {
+      const t0 = new Date(o.timestamp_utc).getTime();
+      const meas = series24.filter((r) => new Date(r.timestamp_utc) >= t0 - 2 * 3600e3 && r.do_mg_l_status === 'VALID').map((r) => [new Date(r.timestamp_utc).getTime(), r.do_mg_l]);
+      const fut = [[t0, doValue], ...fc.map((f) => [t0 + f.horizon_minutes * 60000, f.predicted_do_mg_l])].filter((q) => Number.isFinite(q[1]));
+      const ys = [...meas, ...fut].map((q) => q[1]);
+      if (ys.length < 2) return '';
+      const dom = doDomain(ys, rule);
+      const W = 320; const H = 64; const P = 4;
+      const X = (t) => P + ((t - (t0 - 2 * 3600e3)) / (4 * 3600e3)) * (W - 2 * P);
+      const Y = (v) => P + (1 - (v - dom[0]) / (dom[1] - dom[0])) * (H - 2 * P);
+      const path = (pts) => pts.map((q, i) => `${i ? 'L' : 'M'}${X(q[0]).toFixed(1)},${Y(q[1]).toFixed(1)}`).join('');
+      const line = (v, cls) => (v > dom[0] && v < dom[1] ? `<line class="${cls}" x1="${P}" x2="${W - P}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/>` : '');
+      return `<div class="aq-hero-spark"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Dissolved oxygen over the last 2 hours and the next 2 hours">
+        ${line(rule.watch_boundary_do_mg_l, 'b-watch')}${line(rule.critical_do_mg_l, 'b-crit')}
+        <line class="b-now" x1="${X(t0).toFixed(1)}" x2="${X(t0).toFixed(1)}" y1="0" y2="${H}"/>
+        ${meas.length > 1 ? `<path class="s-meas" d="${path(meas)}"/>` : ''}${fut.length > 1 ? `<path class="s-fc" d="${path(fut)}"/>` : ''}
+        ${Number.isFinite(doValue) ? `<circle class="s-now" cx="${X(t0).toFixed(1)}" cy="${Y(doValue).toFixed(1)}" r="4"/>` : ''}
+      </svg><div class="aq-hero-spark-axis"><span>2 h ago</span><span>Now</span><span>+2 h</span></div></div>`;
+    }
+
     root.innerHTML = html`<div class="live-status-page live-status-redesign">
       ${!o ? raw('<div class="aq-state"><strong>No observations yet</strong><p>When the AquaCast edge device syncs its first 10-minute cycle, the current conditions will appear here.</p></div>') : ''}
-      <section class="live-overview-grid">
-        <article class="live-primary-status-card">
-          <div class="live-primary-header">
-            <div class="live-primary-heading"><div class="live-primary-icon">${ic('droplets', 20)}</div>
-              <div><span>Current Observation &amp; Risk</span><h3>Dissolved Oxygen</h3></div></div>
-            <span class="live-risk-state-badge live-risk-${rk === 'unknown' ? 'normal' : rk}">${riskLabel(risk)}</span>
-          </div>
-          <div class="live-do-display"><strong class="live-do-value ${doClass}">${doValue === null ? '--' : fmtNum(doValue)}</strong><span class="live-do-unit">mg/L</span></div>
-          <p class="live-do-caption">${doR && !doR.usable && o ? `DO reading not usable this cycle (${doR.quality_status.replace(/_/g, ' ')}).` : 'Current observed dissolved oxygen with the AquaCast risk classification for this monitoring cycle.'}</p>
-          <div class="live-threshold-row">
-            <span class="live-threshold-pill">Normal / Watch boundary: <strong>${fmtNum(rule.watch_boundary_do_mg_l, 1)} mg/L</strong></span>
-            <span class="live-threshold-pill">Critical threshold: <strong>≤ ${fmtNum(rule.critical_do_mg_l, 1)} mg/L</strong></span>
-          </div>
-          ${d.risk && !d.risk.available && o ? raw(html`<p class="live-do-caption">${d.risk.message}</p>`) : ''}
-        </article>
-        <article class="live-context-card">
-          <div class="live-context-header"><div class="live-context-title">${ic('triangle-alert', 19)}<div><h3>Condition Overview</h3><p>Current trend, critical outlook, alerts, and data status at a glance.</p></div></div></div>
-          <div class="live-context-grid">
-            <div class="live-context-metric"><div class="live-context-metric-top">${ic(trend?.slope_mg_l_per_hr < 0 ? 'trending-down' : 'trending-up', 15)}<span>DO Trend</span></div>
-              <strong class="${trendCls}">${trend?.label || 'Insufficient data'}</strong><small>${trend?.slope_mg_l_per_hr === null || trend?.slope_mg_l_per_hr === undefined ? 'Needs 3 valid readings in 1 h' : `${fmtNum(trend.slope_mg_l_per_hr)} mg/L/hr`}</small></div>
-            <div class="live-context-metric"><div class="live-context-metric-top">${ic('clock', 15)}<span>Critical Outlook</span></div>
-              <strong>${outlook}</strong><small>Based on 30–120 min forecasts</small></div>
-            <button type="button" class="live-context-metric live-context-link" data-go="alerts"><div class="live-context-metric-top">${ic('bell', 15)}<span>Active Alerts</span></div>
-              <strong>${d.active_alerts}</strong><small>Review active alerts</small></button>
-            <div class="live-context-metric"><div class="live-context-metric-top">${ic('clock', 15)}<span>Latest Observation</span></div>
-              <strong>${o ? ago(o.timestamp_utc).toUpperCase() : '--'}</strong><small>${o ? `${fmtDateTime(o.timestamp_utc)} • ${o.record_status}` : 'Waiting for first cycle'}</small></div>
-          </div>
-        </article>
-      </section>
+      ${raw(heroHtml())}
 
       <section class="live-insight-grid">
         <section class="dashboard-panel do-trend-panel">
@@ -151,11 +206,6 @@ export default async function live(root, ctx) {
             <div class="aq-zoom-hint">Pick how far back to show. Tap or slide on the chart to read exact values.</div>
           </div>
           <div class="do-trend-chart" id="live-chart"></div>
-          <div class="do-trend-value-grid">
-            ${[{ label: 'Current', icon: 'activity', v: doValue }, ...d.forecasts.map((f) => ({ label: `+${f.horizon_minutes} min`, icon: 'clock-3', v: f.forecast_status === 'VALID' ? f.predicted_do_mg_l : null, status: f.forecast_status }))]
-              .map((c) => { const b = doBand(c.v, rule); return raw(html`<div class="do-trend-value-card ${b === 'critical' ? 'critical' : b === 'watch' ? 'attention' : 'normal'}">
-                <div class="do-trend-value-label">${ic(c.icon, 13)}${c.label}</div><strong>${c.v === null ? '--' : fmtNum(c.v)}</strong><span>${c.v === null && c.status ? c.status.replace(/_/g, ' ') : 'mg/L'}</span></div>`); })}
-          </div>
           <div class="do-trend-model">
             <div><span>Model</span><strong>${(() => { const m = d.forecasts.find((f) => f.model)?.model; return m ? `${m.model_name.replace(/ DO \+\d+ min$/, '')} ${m.version}` : 'XGBoost'; })()}</strong></div>
             <div><span>Typical error at +1h</span><strong>${rmse?.[60] ? `± ${fmtNum(rmse[60])} mg/L` : 'Not enough data yet'}</strong></div>
@@ -166,18 +216,12 @@ export default async function live(root, ctx) {
         </section>
 
         <div class="live-right-stack">
-          <article class="dashboard-panel operator-support-panel">
-            <div class="operator-support-header"><div class="operator-support-title"><div class="operator-support-icon">${ic('shield-check', 18)}</div>
-              <div><h3>Operator Guidance</h3><p>Forecast-informed decision support</p><span class="human-loop-badge">HUMAN-IN-THE-LOOP</span></div></div></div>
-            <div class="operator-support-status"><span>Current Guidance</span><strong>${g.title}</strong><p>${g.description}</p></div>
-            <button type="button" class="operator-support-action" data-go="forecast">View Full Forecast${ic('arrow-right', 16)}</button>
-          </article>
           <article class="dashboard-panel manual-aeration-panel manual-aeration-compact" id="aeration-panel"></article>
         </div>
       </section>
 
       <section class="live-lower-grid">
-        <article class="dashboard-panel environment-overview-panel">
+        <article class="dashboard-panel environment-overview-panel aq-collapsible" data-collapse="env">
           <div class="environment-overview-header"><div class="environment-overview-title">${ic('cloud-sun', 19)}<h3>Environmental Context</h3></div>
             <p>Supporting pond and atmospheric measurements from the current observation cycle.</p></div>
           <div class="environment-context-grid">
@@ -187,7 +231,7 @@ export default async function live(root, ctx) {
           </div>
           <div class="environment-context-note">Environmental measurements provide context for interpreting dissolved oxygen behavior. They should not be treated as confirmation that a particular variable caused a DO change.</div>
         </article>
-        <article class="dashboard-panel activity-audit-panel">
+        <article class="dashboard-panel activity-audit-panel aq-collapsible" data-collapse="activity">
           <div class="activity-audit-header"><div class="activity-audit-title"><div class="activity-header-icon">${ic('clipboard-list', 19)}</div>
             <div><h3>Pond Activity &amp; Event Log</h3><p>Recent pond operations, management activities, and system events</p></div></div>
             <button type="button" class="log-activity-button" data-act="log">${ic('plus', 15)}Log Activity</button></div>
@@ -196,14 +240,14 @@ export default async function live(root, ctx) {
               <div class="activity-timeline"><span class="activity-dot"></span><span class="activity-line"></span></div>
               <div class="activity-icon-container">${ic(eventIcon(a), 17)}</div>
               <div class="activity-information"><div class="activity-title-row"><strong>${eventLabel(a.event_type)}</strong><span class="activity-station">${ctx.station()}</span></div>
-                <p>${a.details || '—'}</p><span class="activity-user">${a.actor_name || a.source}</span></div></div>
+                <p>${describeEvent(a)}</p><span class="activity-user">${a.actor_name || a.source}</span></div></div>
               <time>${fmtTime(a.occurred_at, true)}</time></div>`)) : raw('<div class="aq-state small"><strong>No recent activity</strong><p>Logged pond activities and system events from the last 7 days appear here.</p></div>')}
           </div>
           <div class="activity-footer"><span>Showing latest ${acts.length} records</span><button type="button" data-go="activities">View full activity log →</button></div>
         </article>
       </section>
 
-      <section class="dashboard-panel sensors2-edge-panel live-health-panel">
+      <section class="dashboard-panel sensors2-edge-panel live-health-panel aq-collapsible" data-collapse="health">
         <div class="sensors2-section-header"><div><span class="sensors2-eyebrow">EDGE DEVICE</span><h3>System Health</h3>
           <p>${d.system_health ? `Latest Raspberry Pi report ${ago(d.system_health.timestamp_utc).toLowerCase()}${d.system_health.matches_latest_observation ? ' (this cycle)' : ' (older cycle)'}.` : 'No health report has been synced yet.'}</p></div>
           <span class="sensors2-status-chip ${d.system_health ? (d.system_health.rs485_bus_status === 'OK' && d.system_health.i2c_bus_status === 'OK' ? 'available' : 'pending') : 'pending'}">${d.system_health ? (d.system_health.rs485_bus_status === 'OK' && d.system_health.i2c_bus_status === 'OK' ? 'BUSES OK' : 'BUS DEGRADED') : 'UNAVAILABLE'}</span></div>
@@ -212,6 +256,8 @@ export default async function live(root, ctx) {
     </div>`;
 
     renderAeration(root.querySelector('#aeration-panel'), d.aerator);
+    root.querySelector('[data-hero=aeration]')?.addEventListener('click', () => root.querySelector('#aeration-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    setupCollapsibles(root);
     root.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => ctx.navigate(b.dataset.go)));
     root.querySelector('[data-act=log]').addEventListener('click', () => openActivityModal({ variant: 'compact', onSaved: render }));
 

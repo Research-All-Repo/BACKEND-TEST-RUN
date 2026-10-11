@@ -4,6 +4,8 @@ const S = require('../services/dashboard');
 const { unwrap, E } = require('../lib/errors');
 const { ruleReference, sanitizeText } = require('../lib/helpers');
 const { requireRole } = require('../middleware/auth');
+const { getAdminClient } = require('../lib/supabase');
+const { getCalibration, setCalibration } = require('../lib/dashboard-settings');
 
 const router = express.Router();
 
@@ -69,6 +71,31 @@ router.patch('/study', requireRole('ADMIN'), async (req, res, next) => {
     const row = unwrap(await db.rpc('update_study_metadata', { p_study_id: study.study_id, p_patch: patch }));
     res.json({ data: row });
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET/PUT /api/settings/calibration  (ADMIN)
+ * Calibration mode: while the DO probe is being calibrated, readings are labelled
+ * "uncalibrated" on every dashboard and no risk / data-stopped phone alerts are sent.
+ */
+router.get('/calibration', requireRole('ADMIN'), async (_req, res, next) => {
+  try { res.json({ data: await getCalibration({ fresh: true }) }); } catch (err) { next(err); }
+});
+router.put('/calibration', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    if (typeof req.body?.enabled !== 'boolean') throw E.validation('enabled must be true or false.');
+    const note = sanitizeText(req.body.note || '', 300) || null;
+    const { user, profile } = req.auth;
+    const value = await setCalibration(req.body.enabled, { userId: user.id, byName: profile.full_name || user.email, note });
+    await getAdminClient().from('dashboard_audit_log').insert({
+      actor_user_id: user.id, action: 'CALIBRATION_MODE_CHANGED', target_table: 'dashboard_settings', target_id: 'calibration_mode',
+      details: { enabled: req.body.enabled, note },
+    });
+    res.json({ data: value, meta: { message: req.body.enabled ? 'Calibration mode is on: readings are marked uncalibrated and risk alerts are paused.' : 'Calibration mode is off: alerts are active again.' } });
+  } catch (err) {
+    if (/dashboard_settings/.test(err?.message || '')) return next(E.validation('Run migration 004_reliability.sql in Supabase first.'));
     next(err);
   }
 });

@@ -45,6 +45,7 @@ export async function api(method, path, body, { headers = {}, silentAuth = false
 export const get = (p, o) => api('GET', p, undefined, o);
 export const post = (p, b, o) => api('POST', p, b ?? {}, o);
 export const patch = (p, b, o) => api('PATCH', p, b, o);
+export const put = (p, b, o) => api('PUT', p, b, o);
 
 /** Query-string helper that skips empty values. */
 export function qs(params) {

@@ -1,7 +1,7 @@
 // History & Trends: observations by date/time range (preset or custom), summary cards,
 // DO vs one context variable chart, recorded risk distribution, paginated records, CSV export.
 import { get, qs } from '../api.js';
-import { html, raw, ic, fmtNum, fmtDateTime, fmtTime, fmtDate, riskKey, riskLabel, localInputToIso, isoToLocalInput, toast, errorBox, loadingBox } from '../ui.js';
+import { html, raw, ic, fmtNum, fmtDateTime, riskKey, riskLabel, localInputToIso, isoToLocalInput, toast, errorBox, loadingBox } from '../ui.js';
 import { mountChart, doZones, doThresholds, describeDo, riskSegments, RISK_STYLES, DO_COLOR, CONTEXT_COLOR } from '../chart.js';
 import { paginationHtml, wirePagination } from './shared.js';
 

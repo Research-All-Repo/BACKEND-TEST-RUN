@@ -292,6 +292,9 @@ export function openAlertSettings() {
             <button type="button" class="aq-btn aq-test-critical" data-act="test-critical">${ic('play', 14)}Test Critical sound</button>
           </div>
           <p>Warning plays a two-note chime. Critical plays an urgent siren and repeats every 30 seconds until someone taps the critical alert.</p></section>
+        <section><h4>${ic('moon', 16)}Appearance</h4>
+          <div class="aq-zoom-presets aq-theme-choice" role="group" aria-label="Colour theme">${['auto', 'light', 'dark'].map((t) => raw(`<button type="button" data-theme-choice="${t}" class="${(window.aqTheme?.get() || 'auto') === t ? 'active' : ''}" aria-pressed="${(window.aqTheme?.get() || 'auto') === t}">${{ auto: 'Auto', light: 'Light', dark: 'Dark' }[t]}</button>`))}</div>
+          <p class="aq-settings-note">Auto follows this device's light / dark setting. Dark is easier on the eyes for night checks.</p></section>
         <section><h4>${ic('smartphone', 16)}Home screen app</h4>${raw(installHtml)}</section>
         <p class="aq-settings-note">With instant alerts on, the phone shows a notification within seconds even when AquaCast is closed. The full-screen alert and the siren play when AquaCast is open (tap the notification to open it). On iPhone, notifications need the Home Screen app (iOS 16.4 or newer).</p>
       </div>`,
@@ -304,6 +307,11 @@ export function openAlertSettings() {
         close(); openAlertSettings();
       });
       m.querySelector('[data-act=push]')?.addEventListener('click', async () => { await syncPush(); close(); openAlertSettings(); });
+      m.querySelectorAll('[data-theme-choice]').forEach((b) => b.addEventListener('click', () => {
+        window.aqTheme?.set(b.dataset.themeChoice);
+        m.querySelectorAll('[data-theme-choice]').forEach((x) => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
+        window.dispatchEvent(new Event('resize')); // charts redraw with the new colours
+      }));
       m.querySelector('[data-act=sound]')?.addEventListener('change', (e) => { store.set(SOUND_KEY, e.target.checked); unlockAudio(); });
       const test = (level) => async () => {
         unlockAudio();

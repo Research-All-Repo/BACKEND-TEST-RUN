@@ -13,11 +13,13 @@
 const config = require('../config');
 const { getAdminClient } = require('../lib/supabase');
 const push = require('../lib/push');
+const { getCalibration } = require('../lib/dashboard-settings');
 
 const RANK = { NORMAL: 0, WATCH: 0, DATA_UNAVAILABLE: 0, WARNING: 1, CRITICAL: 2 };
 
 async function evaluateAndNotify() {
   if (!push.enabled()) return { skipped: 'push not configured' };
+  if ((await getCalibration()).enabled) return { skipped: 'calibration mode: risk alerts paused' };
   const db = getAdminClient();
   const { data: rows, error } = await db.from('risk_assessments')
     .select('risk_id, current_risk_state, assessment_timestamp_utc, observation_id, raw_observations(timestamp_utc, do_mg_l, do_mg_l_status)')

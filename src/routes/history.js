@@ -37,7 +37,7 @@ router.get('/observations', async (req, res, next) => {
       const t = new Date(o.timestamp_utc).getTime();
       const aer = intervals.find((i) => t >= i.start && t < i.end);
       const risk = Array.isArray(o.risk_assessments) ? o.risk_assessments[0] : o.risk_assessments;
-      const { risk_assessments, ...rest } = o;
+      const { risk_assessments: _joined, ...rest } = o;
       return { ...rest, recorded_risk_state: risk?.current_risk_state || null, forecast_outlook: risk?.forecast_outlook || null,
         aeration_recorded: aer ? (aer.controller ? 'CONTROLLER_REPORTED_ON' : 'MANUALLY_LOGGED') : 'NONE' };
     });

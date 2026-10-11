@@ -2,7 +2,7 @@
 // admin actions) from Supabase, with category filter, search, range, pagination and recording.
 import { get, qs } from '../api.js';
 import { html, raw, ic, fmtDateTime, errorBox, loadingBox } from '../ui.js';
-import { eventIcon, eventLabel, sourceKind, openActivityModal, paginationHtml, wirePagination } from './shared.js';
+import { eventIcon, eventLabel, sourceKind, openActivityModal, paginationHtml, wirePagination, describeEvent } from './shared.js';
 
 const CATS = {
   '': 'All activity types', POND_ACTIVITY: 'Pond activities', AERATION: 'Aeration sessions', MAINTENANCE: 'Maintenance',
@@ -10,18 +10,7 @@ const CATS = {
 };
 const RANGES = { '24h': 'Past 24 hours', '7d': 'Past 7 days', '30d': 'Past 30 days', '90d': 'Past 90 days' };
 
-function describe(a) {
-  if (a.event_type === 'MOCK_EDGE_STATE_CHANGED') {
-    try { return `Simulated edge device set ${JSON.parse(a.details).offline ? 'OFFLINE' : 'ONLINE'} (test data only).`; } catch { /* fall through */ }
-  }
-  if (a.event_type === 'PUSH_RISK_SENT') {
-    try { const d = JSON.parse(a.details); return `${d.reminder ? 'Reminder: ' : ''}${d.state} alert (DO ${d.do}) pushed to ${d.sent ?? 0} phone(s)${d.failed ? `, ${d.failed} failed` : ''}.`; } catch { /* fall through */ }
-  }
-  if (a.event_type === 'ALERT_TEST_BROADCAST') {
-    try { return `Test ${JSON.parse(a.details).level} alert sent to all signed-in devices (no real reading).`; } catch { /* fall through */ }
-  }
-  return a.details || '—';
-}
+const describe = describeEvent;
 
 export default async function activities(root, ctx) {
   const st = { category: '', q: '', range: '7d', page: 1, pageSize: 15 };

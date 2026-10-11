@@ -2,7 +2,7 @@
 // operator advisory banner, critical takeover, profile and logout dialogs.
 // All data comes from the backend API (see docs/API.md); no Supabase keys in the browser.
 import { get, post, onAuthProblem } from './api.js';
-import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
+import { html, raw, ic, esc, icon, openModal, formData, setTimezone, initials, roleLabel, riskLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
 import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
@@ -12,6 +12,14 @@ const KEEP_SIGNED_IN = (() => {
   try { return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || window.matchMedia('(pointer: coarse)').matches; } catch { return false; }
 })();
 const root = document.getElementById('root');
+
+// phone bottom tabs: the four places operators visit most; "More" opens the full menu
+const TABS = [
+  { id: 'live', label: 'Live', icon: 'gauge' },
+  { id: 'forecast', label: 'Forecast', icon: 'trending-up' },
+  { id: 'history', label: 'History', icon: 'rotate-ccw-clock' },
+  { id: 'alerts', label: 'Alerts', icon: 'bell', badge: true },
+];
 
 const NAV = [
   { section: 'Main Monitoring', items: [
@@ -201,15 +209,21 @@ function enterApp(profile) {
         </div>
       </div></header>
       <section class="dashboard-content"><div class="dashboard-content-inner">
+        <div id="calibration-banner"></div>
         <div id="freshness"></div>
         <div id="advisory"></div>
         <div id="page"></div>
       </div></section>
     </main>
+    <nav class="aq-tabbar" aria-label="Main sections">
+      ${TABS.map((t) => raw(html`<button type="button" class="aq-tab" data-nav="${t.id}">${ic(t.icon, 22)}<span>${t.label}</span>${t.badge ? raw('<b class="aq-tab-badge aq-hidden" data-badge="alerts"></b>') : ''}</button>`))}
+      <button type="button" class="aq-tab" data-act="more" aria-label="More pages and account">${ic('ellipsis', 22)}<span>More</span></button>
+    </nav>
   </div>`;
 
   root.querySelectorAll('[data-nav]').forEach((b) => b.addEventListener('click', () => { navigate(b.dataset.nav); setSidebar(false); }));
   root.querySelector('.dashboard-menu-button').addEventListener('click', () => setSidebar(true));
+  root.querySelector('.aq-tabbar [data-act=more]').addEventListener('click', () => setSidebar(true));
   root.querySelector('.sidebar-mobile-close').addEventListener('click', () => setSidebar(false));
   root.querySelector('[data-open=profile]').addEventListener('click', openProfile);
   root.querySelector('[data-open=logout]').addEventListener('click', openLogout);
@@ -232,6 +246,24 @@ export function navigate(page, opts = {}) {
   if (location.hash.slice(1) === page) route(opts);
   else { state.pendingNavOpts = opts; location.hash = page; }
 }
+
+// unexpected browser errors go to the built-in error log (Admins read it in System Settings)
+let errorReports = 0;
+function reportError(message, detail) {
+  if (!state.profile || errorReports >= 5) return; // at most 5 a minute per device
+  errorReports += 1;
+  setTimeout(() => { errorReports = Math.max(0, errorReports - 1); }, 60_000);
+  post('/api/errors', { message: String(message || 'Unknown error').slice(0, 500), detail: String(detail || '').slice(0, 4000), path: location.hash || '/' }).catch(() => {});
+}
+window.addEventListener('error', (e) => {
+  if (!e.filename || !e.filename.startsWith(location.origin) || /ResizeObserver loop/.test(e.message)) return; // extensions, benign noise
+  reportError(e.message, `${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack || ''}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  if (r?.code) return; // API errors: handled on screen and logged by the server
+  reportError(r?.message || String(r), r?.stack);
+});
 
 async function route(opts) {
   if (!state.profile) return;
@@ -270,6 +302,7 @@ async function route(opts) {
     else if (typeof cleanup === 'function') { try { cleanup(); } catch { /* ignore */ } }
   } catch (err) {
     if (!current()) return; // the user already left this page; its late error is irrelevant
+    if (!err.code) reportError(`${id} page: ${err.message}`, err.stack);
     if (!['SESSION_EXPIRED', 'SESSION_MISSING'].includes(err.code)) view.innerHTML = errorBox(err);
   }
 }
@@ -291,13 +324,32 @@ function ctx(opts) {
 // Global polling: freshness banner, advisory, badges, critical takeover
 // =====================================================================
 const FRESH_TITLE = { SYNC_DELAYED: 'Sync delayed', OFFLINE: 'Edge device offline', NO_DATA: 'No data yet' };
+// the newest reading this device has seen, kept so an offline phone can still show it
+const LAST_KEY = 'aq-last-reading';
+function rememberReading(live) {
+  const o = live?.observation; const r = o?.readings?.do_mg_l;
+  if (!o || !r?.usable) return;
+  try { localStorage.setItem(LAST_KEY, JSON.stringify({ at: o.timestamp_utc, do: r.value, risk: riskLabel(live.risk?.current_risk_state || 'DATA_UNAVAILABLE') })); } catch { /* private mode */ }
+}
+function lastKnown() { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch { return null; } }
+
+function renderCalibration() {
+  const el = document.getElementById('calibration-banner');
+  if (!el) return;
+  const c = state.live?.calibration;
+  el.innerHTML = c?.enabled ? html`<div class="aq-calib-banner" role="status">${ic('wrench', 18)}<div><strong>Calibration mode: readings may be inaccurate</strong>
+    The dissolved oxygen probe is being calibrated${c.by ? ` (turned on by ${c.by}${c.since ? ` at ${fmtTime(c.since)}` : ''})` : ''}. Risk alerts and phone notifications are paused until an Administrator turns this off in System Settings.${c.note ? raw(html`<br><em>Note: ${c.note}</em>`) : ''}</div></div>` : '';
+}
+
 function renderFreshness(fresh, err) {
   const el = document.getElementById('freshness');
   if (!el) return;
   let code = null; let title = ''; let text = '';
-  if (!navigator.onLine) { code = 'browser_offline'; title = 'You are offline'; text = 'Showing the last loaded data. It will refresh when your connection returns.'; }
-  else if (err && ['SUPABASE_UNAVAILABLE', 'BACKEND_UNREACHABLE', 'SUPABASE_REQUEST_FAILED'].includes(err.code)) {
-    code = err.code.toLowerCase(); title = err.code === 'BACKEND_UNREACHABLE' ? 'Server unreachable' : 'Database unreachable'; text = `${err.message} Retrying every minute.`;
+  const last = lastKnown();
+  const lastText = last ? ` Last known reading: ${fmtNum(last.do)} mg/L (${last.risk}) at ${fmtTime(last.at)}.` : '';
+  if (!navigator.onLine) { code = 'browser_offline'; title = 'You are offline'; text = `Showing the last loaded data. It will refresh when your connection returns.${lastText}`; }
+  else if (err && ['SUPABASE_UNAVAILABLE', 'BACKEND_UNREACHABLE', 'SUPABASE_REQUEST_FAILED', 'BROWSER_OFFLINE'].includes(err.code)) {
+    code = err.code.toLowerCase(); title = err.code === 'BACKEND_UNREACHABLE' ? 'Server unreachable' : err.code === 'BROWSER_OFFLINE' ? 'You are offline' : 'Database unreachable'; text = `${err.message} Retrying every minute.${lastText}`;
   } else if (fresh && fresh.state !== 'LIVE') { code = fresh.state.toLowerCase(); title = FRESH_TITLE[fresh.state] || fresh.state; text = fresh.message; }
   el.innerHTML = code ? html`<div class="aq-freshness ${code}" role="status">${ic(code === 'sync_delayed' ? 'clock-3' : code === 'browser_offline' ? 'wifi-off' : 'triangle-alert', 18)}<div><strong>${title}</strong>${text}</div></div>` : '';
   const dot = document.querySelector('#system-status .status-dot');
@@ -442,10 +494,12 @@ async function refreshLive() {
     state.liveError = null;
     setTimezone(r.data.station?.timezone);
     renderFreshness(r.meta.freshness, null);
-    const ab = document.querySelector('[data-badge=alerts]');
-    if (ab) { ab.textContent = r.data.active_alerts; ab.classList.toggle('aq-hidden', !r.data.active_alerts); }
+    document.querySelectorAll('[data-badge=alerts]').forEach((ab) => { ab.textContent = r.data.active_alerts > 99 ? '99+' : r.data.active_alerts; ab.classList.toggle('aq-hidden', !r.data.active_alerts); });
     renderAdvisory();
-    checkRisk(state.live, { navigate, showCritical: showCriticalTakeover });
+    renderCalibration();
+    rememberReading(state.live);
+    // calibration mode: readings are not trustworthy yet, so no alarms (test alerts still work)
+    if (!state.live.calibration?.enabled) checkRisk(state.live, { navigate, showCritical: showCriticalTakeover });
     checkTestAlert(state.live, { navigate, showCritical: showCriticalTakeover });
   } catch (err) {
     state.liveError = err;
@@ -467,7 +521,8 @@ async function pulse() {
   if (document.visibilityState !== 'visible' || !state.live) return;
   try {
     const { data } = await get('/api/live/pulse');
-    if (data.risk_id !== (state.live.risk?.risk_id || null) || (data.test_alert_id && data.test_alert_id !== state.live.test_alert?.id)) refreshLive();
+    if (data.risk_id !== (state.live.risk?.risk_id || null) || (data.test_alert_id && data.test_alert_id !== state.live.test_alert?.id)
+      || (data.calibration !== undefined && !!data.calibration !== !!state.live.calibration?.enabled)) refreshLive();
   } catch { /* the 60 s refresh reports errors */ }
 }
 function startPolling() {
