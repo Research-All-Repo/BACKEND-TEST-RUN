@@ -88,6 +88,7 @@ export function mountChart(host, rawConfig) {
   host.classList.add('aq-chart-host');
   if (config.height) host.style.height = `${config.height}px`;
   let legendEl = null;
+  let readoutEl = null;
   const ro = new ResizeObserver(() => draw());
   ro.observe(host);
   draw();
@@ -97,6 +98,7 @@ export function mountChart(host, rawConfig) {
     const H = Math.max(180, host.clientHeight || 320);
     host.innerHTML = '';
     legendEl?.remove(); legendEl = null;
+    readoutEl?.remove(); readoutEl = null;
     const allSeries = config.panels.flatMap((p) => p.series);
     const allPts = allSeries.flatMap((s) => s.points).filter(valid);
     if (!allPts.length) {
@@ -107,11 +109,21 @@ export function mountChart(host, rawConfig) {
     const hasEnd = allSeries.some((s) => s.endLabel);
     const hasDots = allSeries.some((se) => se.dots ?? se.points.length <= 14);
     const hasRight = config.panels.some((p) => p.series.some((se) => se.axis === 'right'));
-    const M = { l: narrow ? 38 : 46, r: hasRight ? (narrow ? 40 : 48) : hasEnd ? (narrow ? 44 : 54) : hasDots ? 24 : 14, t: 4, b: config.xTicks ? 22 : 34 };
-    const TITLE = 20; const GAP = 16;
+    // right margin wide enough for the longest right-scale label (e.g. "1,012.0")
+    let rightW = 0;
+    for (const p of config.panels) {
+      const rs = p.series.filter((se) => se.axis === 'right').flatMap((se) => se.points).filter(valid);
+      if (!rs.length) continue;
+      const f = p.right?.format || ((v) => v.toFixed(1));
+      rightW = Math.max(rightW, ...[Math.min(...rs.map((q) => q.y)), Math.max(...rs.map((q) => q.y))].map((v) => f(v * 1.02).length * 6.4 + 10));
+    }
+    const M = { l: narrow ? 38 : 46, r: hasRight ? Math.max(narrow ? 34 : 44, rightW) : hasEnd ? (narrow ? 44 : 54) : hasDots ? 24 : 14, t: 4, b: config.xTicks ? 22 : 34 };
+    // on phones a panel with two scales stacks its two titles on separate lines
+    const titleH = (p) => (narrow && p.series.some((se) => se.axis === 'right') ? 38 : 20);
+    const GAP = 16;
     const strip = config.strip && config.strip.items?.length ? config.strip : null;
     const STRIP = strip ? 26 : 0;
-    const fixed = M.t + M.b + config.panels.length * TITLE + (config.panels.length - 1) * GAP + STRIP;
+    const fixed = M.t + M.b + config.panels.reduce((a, p) => a + titleH(p), 0) + (config.panels.length - 1) * GAP + STRIP;
     const totalW = config.panels.reduce((s, p) => s + (p.weight || 1), 0);
     const avail = Math.max(80, H - fixed);
 
@@ -125,7 +137,7 @@ export function mountChart(host, rawConfig) {
     // vertical layout
     let y = M.t;
     const layout = config.panels.map((p, i) => {
-      const top = y + TITLE;
+      const top = y + titleH(p);
       const h = (avail * (p.weight || 1)) / totalW;
       y = top + h;
       const out = { p, top, h, stripTop: null };
@@ -137,8 +149,8 @@ export function mountChart(host, rawConfig) {
     const bottom = lastL.stripTop !== null ? lastL.stripTop + 12 : lastL.top + lastL.h;
 
     const ticks = config.xTicks
-      ? config.xTicks.map((t) => ({ t: +t, main: (config.xFormat || ((d) => d.toISOString()))(new Date(t)), sub: '' }))
-      : timeTicks(x0, x1, Math.max(3, Math.floor(plotW / (narrow ? 70 : 90))));
+      ? config.xTicks.map((t) => ({ t: +t, main: (config.xFormat || ((d) => d.toISOString()))(new Date(t), { narrow }), sub: '' }))
+      : timeTicks(x0, x1, Math.max(3, Math.floor(plotW / (narrow ? 60 : 90))));
     const tickXs = ticks.map((tk) => sx(tk.t)).filter((tx) => tx >= M.l - 1 && tx <= M.l + plotW + 1);
 
     const shownZones = new Set();
@@ -173,7 +185,16 @@ export function mountChart(host, rawConfig) {
 
       // titles (with a line key when two variables share the panel)
       const tx0 = M.l - (narrow ? 34 : 42);
-      if (R) {
+      if (R && narrow) {
+        const lc = leftSeries[0]?.color || '#334155'; const rc = rightSeries[0].color;
+        const keyLine = (yy, c, dashed) => `<line x1="${tx0}" x2="${tx0 + 14}" y1="${yy}" y2="${yy}" stroke="${c}" stroke-width="2.5" ${dashed ? 'stroke-dasharray="4 3"' : ''}/>`;
+        s += keyLine(top - 29, lc, leftSeries[0]?.dashed);
+        s += `<text class="panel-title" x="${tx0 + 19}" y="${top - 25}">${esc(p.title || '')}${p.unit ? `<tspan class="panel-unit"> (${esc(p.unit)}, left scale)</tspan>` : ''}</text>`;
+        s += keyLine(top - 11, rc, rightSeries[0].dashed);
+        s += `<text class="panel-title" x="${tx0 + 19}" y="${top - 7}">${esc(p.right?.title || rightSeries[0].name)}${p.right?.unit ? `<tspan class="panel-unit"> (${esc(p.right.unit)}, right scale)</tspan>` : ''}</text>`;
+        const rf = p.right?.format || ((v) => (R.step >= 1 ? v.toFixed(0) : v.toFixed(1)));
+        for (const t of R.ticks) s += `<text class="tick" x="${M.l + plotW + 5}" y="${syR(t) + 4}">${esc(rf(t))}</text>`;
+      } else if (R) {
         const lc = leftSeries[0]?.color || '#334155'; const rc = rightSeries[0].color;
         s += `<line x1="${tx0}" x2="${tx0 + 14}" y1="${top - 11}" y2="${top - 11}" stroke="${lc}" stroke-width="2.5" ${leftSeries[0]?.dashed ? 'stroke-dasharray="4 3"' : ''}/>`;
         s += `<text class="panel-title" x="${tx0 + 19}" y="${top - 7}">${esc(p.title || '')}${p.unit ? `<tspan class="panel-unit"> (${esc(p.unit)})</tspan>` : ''}</text>`;
@@ -193,7 +214,7 @@ export function mountChart(host, rawConfig) {
         if (zb - za <= 0) continue;
         shownZones.add(z);
         s += `<rect x="${M.l}" y="${za}" width="${plotW}" height="${zb - za}" fill="${z.fill}"/>`;
-        if (z.label && zb - za >= 14) {
+        if (z.label && !narrow && zb - za >= 14) {
           s += `<text class="zone-label" x="${M.l + 6}" y="${za + 12}">${esc(z.label)}</text>`;
           zoneBoxes.push({ x0: M.l + 4, x1: M.l + 8 + z.label.length * 5.6, y0: za + 2, y1: za + 15 });
         }
@@ -272,7 +293,7 @@ export function mountChart(host, rawConfig) {
           let ty = my + 22 < top + h ? my + 19 : my - 10;
           if (hits(ty) && !hits(my - 10) && my - 20 > top) ty = my - 10;
           s += `<circle cx="${mx}" cy="${my}" r="5" fill="#fff" stroke="${se.color}" stroke-width="2"/>`;
-          s += `<text class="min-label" x="${lx}" y="${ty}">${esc(label)}</text>`;
+          if (!narrow) s += `<text class="min-label" x="${lx}" y="${ty}">${esc(label)}</text>`;
         }
       }
       // strip below this panel
@@ -288,10 +309,15 @@ export function mountChart(host, rawConfig) {
 
     // x-axis
     s += `<line class="axis" x1="${M.l}" x2="${M.l + plotW}" y1="${bottom}" y2="${bottom}"/>`;
+    let lastRight = -Infinity;
     for (const tk of ticks) {
       const tx = sx(tk.t);
       if (tx < M.l - 1 || tx > M.l + plotW + 1) continue;
       const anchor = tx - M.l < 20 ? 'start' : M.l + plotW - tx < 20 ? 'end' : 'middle';
+      const tw = Math.max(tk.main.length, tk.sub.length) * 6.2;
+      const left = anchor === 'start' ? tx : anchor === 'end' ? tx - tw : tx - tw / 2;
+      if (left < lastRight + 8) continue; // never let two time labels overlap
+      lastRight = left + tw;
       s += `<text class="tick" x="${tx}" y="${bottom + 15}" text-anchor="${anchor}">${esc(tk.main)}</text>`;
       if (tk.sub) s += `<text class="tick-sub" x="${tx}" y="${bottom + 28}" text-anchor="${anchor}">${esc(tk.sub)}</text>`;
     }
@@ -313,21 +339,22 @@ export function mountChart(host, rawConfig) {
     });
 
     // ---------- hover / keyboard crosshair ----------
+    // desktop: floating tooltip next to the crosshair; phone: a fixed read-out under the chart
+    // (so a finger never covers the values and nothing is drawn on top of the lines)
     const tooltip = document.createElement('div');
-    tooltip.className = 'aq-chart-tooltip aq-hidden';
     tooltip.setAttribute('role', 'status');
-    host.append(tooltip);
+    if (narrow) { tooltip.className = 'aq-chart-readout'; host.after(tooltip); readoutEl = tooltip; } else { tooltip.className = 'aq-chart-tooltip aq-hidden'; host.append(tooltip); }
     const hoverLine = svg.querySelector('.hover-line');
     const dots = svg.querySelector('.hover-dots');
     const uniqX = [...new Set(xs)].filter((x) => x >= x0 && x <= x1).sort((a, b) => a - b);
     let idx = -1;
     const tf = config.tooltipX || ((d) => fmt({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d));
 
-    function show(i) {
+    function show(i, quiet = false) {
       idx = Math.max(0, Math.min(uniqX.length - 1, i));
       const xv = uniqX[idx];
       const px = sx(xv);
-      hoverLine.setAttribute('x1', px); hoverLine.setAttribute('x2', px); hoverLine.setAttribute('visibility', 'visible');
+      hoverLine.setAttribute('x1', px); hoverLine.setAttribute('x2', px); hoverLine.setAttribute('visibility', quiet ? 'hidden' : 'visible');
       let dotSvg = '';
       const tip = document.createElement('div');
       const head = document.createElement('strong'); head.textContent = tf(new Date(xv)); tip.append(head);
@@ -364,6 +391,7 @@ export function mountChart(host, rawConfig) {
       }
       dots.innerHTML = dotSvg;
       tooltip.replaceChildren(...tip.childNodes);
+      if (narrow) return;
       tooltip.classList.remove('aq-hidden');
       const rect = svg.getBoundingClientRect();
       const scale = rect.width / W;
@@ -372,7 +400,10 @@ export function mountChart(host, rawConfig) {
       tooltip.style.left = `${Math.max(0, left)}px`;
       tooltip.style.top = `${layout[0].top * scale}px`;
     }
-    function hide() { idx = -1; tooltip.classList.add('aq-hidden'); hoverLine.setAttribute('visibility', 'hidden'); dots.innerHTML = ''; }
+    function hide() {
+      if (narrow) { show(uniqX.length - 1, true); return; } // phones always show the latest values
+      idx = -1; tooltip.classList.add('aq-hidden'); hoverLine.setAttribute('visibility', 'hidden'); dots.innerHTML = '';
+    }
     function nearest(clientX) {
       const rect = svg.getBoundingClientRect();
       const xv = x0 + (((clientX - rect.left) / rect.width) * W - M.l) / plotW * (x1 - x0);
@@ -381,6 +412,7 @@ export function mountChart(host, rawConfig) {
       return Math.abs(uniqX[a] - xv) <= Math.abs(uniqX[b] - xv) ? a : b;
     }
     svg.addEventListener('pointermove', (e) => show(nearest(e.clientX)));
+    svg.addEventListener('pointerdown', (e) => show(nearest(e.clientX)));
     svg.addEventListener('pointerleave', hide);
     svg.addEventListener('blur', hide);
     svg.addEventListener('keydown', (e) => {
@@ -409,11 +441,12 @@ export function mountChart(host, rawConfig) {
         const keys = [...new Set(strip.items.map((it) => it.key))];
         for (const k of Object.keys(strip.styles)) if (keys.includes(k)) add('box', strip.styles[k].color, `${strip.styles[k].label}`);
       }
-      if (legendEl.childElementCount > 1 || strip) host.after(legendEl); else legendEl = null;
+      if (legendEl.childElementCount > 1 || strip) (readoutEl || host).after(legendEl); else legendEl = null;
     }
+    if (narrow && uniqX.length) show(uniqX.length - 1, true);
   }
 
-  return { destroy() { ro.disconnect(); legendEl?.remove(); host.innerHTML = ''; } };
+  return { destroy() { ro.disconnect(); legendEl?.remove(); readoutEl?.remove(); host.innerHTML = ''; } };
 }
 
 // ---------- shared AquaCast helpers ----------

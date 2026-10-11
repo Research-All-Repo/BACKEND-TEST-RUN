@@ -3,7 +3,7 @@
 // All data comes from the backend API (see docs/API.md); no Supabase keys in the browser.
 import { get, post, onAuthProblem } from './api.js';
 import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
-import { checkRisk, clearIndicators, openAlertSettings, registerServiceWorker } from './alerts.js';
+import { checkRisk, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
 const root = document.getElementById('root');
@@ -320,6 +320,7 @@ function showCriticalTakeover() {
       <p class="critical-takeover-note">Acknowledge the alert formally on the Alerts page so it is recorded with your name.</p>`,
     onMount: (dlg, done) => dlg.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => {
       try { sessionStorage.setItem(key, '1'); } catch { state.dismissedCritical.add(key); }
+      stopCriticalAlarm();
       done();
       if (b.dataset.go === 'aeration') navigate('live', { focus: 'aeration' });
       if (b.dataset.go === 'forecast') navigate('forecast');

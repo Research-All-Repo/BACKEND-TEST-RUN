@@ -128,7 +128,7 @@ export default async function forecast(root) {
       series: [{ name: 'Forecast DO', color: FORECAST_COLOR, dashed: true, dots: true,
         points: [{ x: origin, y: cur, fill: DO_COLOR, r: 5 }, ...hz.map((h) => ({ x: new Date(origin.getTime() + h.horizon_minutes * 60000), y: h.forecast_status === 'VALID' ? h.predicted_do_mg_l : null }))] }] }],
     xTicks: [0, 30, 60, 90, 120].map((m) => new Date(origin.getTime() + m * 60000)),
-    xFormat: (dt) => { const m = Math.round((dt - origin) / 60000); return m <= 0 ? 'Now' : `+${m} min`; },
+    xFormat: (dt, o) => { const m = Math.round((dt - origin) / 60000); return m <= 0 ? 'Now' : o?.narrow ? `+${m}m` : `+${m} min`; },
     tooltipX: (dt) => { const m = Math.round((dt - origin) / 60000); return m <= 0 ? `Now (observed) · ${fmtTime(dt.toISOString())}` : `+${m} min forecast · ${fmtTime(dt.toISOString())}`; },
     legend: false,
   }));

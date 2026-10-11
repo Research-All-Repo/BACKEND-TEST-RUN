@@ -1,14 +1,14 @@
 // AquaCast service worker: lets the dashboard be installed on the home screen, opens the
 // app shell when the network is flaky, and shows / handles risk-alert notifications.
 // API calls (/api/*) are NEVER cached: monitoring data always comes live from the server.
-const CACHE = 'aquacast-shell-v1';
+const CACHE = 'aquacast-shell-v2';
 const SHELL = [
   '/', '/index.html', '/manifest.webmanifest',
   '/css/aquacast.css', '/css/aquacast-extra.css',
   '/js/app.js', '/js/api.js', '/js/ui.js', '/js/icons.js', '/js/chart.js', '/js/alerts.js',
   '/js/pages/live.js', '/js/pages/forecast.js', '/js/pages/history.js', '/js/pages/alerts.js', '/js/pages/activities.js',
   '/js/pages/sensors.js', '/js/pages/evaluation.js', '/js/pages/users.js', '/js/pages/settings.js', '/js/pages/shared.js',
-  '/img/aquacast-logo.webp', '/img/aquacast-logo.png', '/img/icons/icon-192.png',
+  '/img/aquacast-logo.webp', '/img/aquacast-logo.png', '/img/icons/icon-192.png', '/img/icons/favicon-64.png',
 ];
 
 self.addEventListener('install', (event) => {

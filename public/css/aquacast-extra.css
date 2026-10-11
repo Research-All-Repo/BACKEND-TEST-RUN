@@ -209,3 +209,27 @@
 .aq-settings-ok { color: #047857 !important; font-weight: 700; }
 .aq-settings-note { font-size: 11px !important; }
 .aq-settings-body .aq-btn { justify-self: start; }
+
+/* Charts on phones: swipe sideways across a chart to read values; vertical swipes still scroll */
+.aq-chart { touch-action: pan-y; -webkit-tap-highlight-color: transparent; user-select: none; }
+.aq-chart-readout { margin-top: 8px; padding: 9px 11px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 12px; color: #334155; min-height: 54px; }
+.aq-chart-readout strong { flex-basis: 100%; color: #64748b; font-size: 11px; font-weight: 700; }
+.aq-chart-readout strong::after { content: ' · tap or slide on the chart'; font-weight: 600; color: #94a3b8; }
+.aq-chart-readout span { display: inline-flex; align-items: baseline; gap: 6px; }
+.aq-chart-readout i { width: 14px; height: 0; border-top: 2px solid; display: inline-block; transform: translateY(-3px); }
+.aq-chart-readout i.dashed { border-top-style: dashed; }
+.aq-chart-readout b { color: #0f172a; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.aq-chart-readout em { font-style: normal; color: #64748b; font-size: 11px; }
+.aq-chart-readout em.range { flex-basis: 100%; font-size: 10px; }
+.aq-chart-readout small { font-size: 11px; font-weight: 700; color: #334155; border-left: 3px solid #cbd5e1; padding-left: 6px; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* Start-up screen shown until the dashboard script loads (also what the installed app shows first) */
+.aq-boot { min-height: 100vh; min-height: 100dvh; display: grid; place-content: center; justify-items: center; gap: 12px; background: #eef6fa; }
+.aq-boot img { width: 56px; height: 56px; border-radius: 14px; box-shadow: 0 8px 22px #0369a12e; }
+.aq-boot p { margin: 0; font: 700 13px/1.3 Arial, Helvetica, sans-serif; color: #0f766e; letter-spacing: .02em; }
+.aq-test-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.aq-test-row .aq-test-warning { border-color: #fdba74; color: #9a3412; background: #fff7ed; }
+.aq-test-row .aq-test-critical { border-color: #fda4af; color: #9f1239; background: #fff1f2; }
+.aq-alert-settings .user2-modal-header p { font-size: 12px; line-height: 1.5; color: #64748b; }

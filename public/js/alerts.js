@@ -7,7 +7,8 @@
 //   - shows a phone/desktop notification when the dashboard is in the background
 //     (needs permission; on iPhone only for the app added to the Home Screen, iOS 16.4+),
 //   - keeps a badge on the app icon and a marker in the tab title until DO recovers.
-// CRITICAL repeats a reminder every 30 minutes while it lasts. Nothing is sent when the app is closed.
+// CRITICAL repeats a reminder every 30 minutes while it lasts, and its alarm sound repeats every
+// 20 s while the critical dialog is open. Nothing is sent when the app is closed.
 import { html, raw, ic, fmtNum, fmtTime, openModal, toast } from './ui.js';
 
 const KEY = 'aq-alert-state';
@@ -33,21 +34,63 @@ function unlockAudio() {
 ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => window.addEventListener(ev, unlockAudio, { passive: true }));
 
 export const soundEnabled = () => store.get(SOUND_KEY, true);
-function playTone(level) {
-  if (!soundEnabled() || !audioCtx || audioCtx.state !== 'running') return;
-  const seq = level === 2 ? [880, 660, 880, 660, 880, 660] : [740, 990];
-  const t0 = audioCtx.currentTime + 0.02;
-  seq.forEach((f, i) => {
-    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
-    o.type = 'square'; o.frequency.value = f;
-    const start = t0 + i * 0.28;
+/**
+ * WARNING  = an "attention" chime: two soft two-note dings (like a doorbell), ~1.6 s.
+ * CRITICAL = an urgent alarm: a rising-falling siren under fast high beeps, ~3 s, louder.
+ * `force` plays even when the sound switch is off (used by the test buttons).
+ */
+function playTone(level, force = false) {
+  if ((!soundEnabled() && !force) || !audioCtx) return false;
+  if (audioCtx.state !== 'running') { try { audioCtx.resume(); } catch { return false; } }
+  const ctx = audioCtx;
+  const out = ctx.createDynamicsCompressor(); out.connect(ctx.destination);
+  const t0 = ctx.currentTime + 0.03;
+  const note = (freq, start, dur, { type = 'sine', peak = 0.3 } = {}) => {
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, start);
     g.gain.setValueAtTime(0.0001, start);
-    g.gain.exponentialRampToValueAtTime(0.18, start + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, start + 0.24);
-    o.connect(g).connect(audioCtx.destination);
-    o.start(start); o.stop(start + 0.26);
-  });
+    g.gain.exponentialRampToValueAtTime(peak, start + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    o.connect(g).connect(out); o.start(start); o.stop(start + dur + 0.02);
+  };
+  if (level === 1) {
+    // ding-dong, ding-dong (E5 -> C5), with a soft overtone so it carries on phone speakers
+    [[0, 659], [0.32, 523], [0.85, 659], [1.17, 523]].forEach(([dt, f]) => {
+      note(f, t0 + dt, 0.55, { type: 'sine', peak: 0.32 });
+      note(f * 2, t0 + dt, 0.3, { type: 'sine', peak: 0.06 });
+    });
+    return true;
+  }
+  // CRITICAL: siren sweep (square) + rapid beeps on top
+  const siren = ctx.createOscillator(); const sg = ctx.createGain();
+  siren.type = 'sawtooth';
+  for (let k = 0; k < 6; k += 1) {
+    siren.frequency.setValueAtTime(620, t0 + k * 0.5);
+    siren.frequency.linearRampToValueAtTime(1250, t0 + k * 0.5 + 0.25);
+    siren.frequency.linearRampToValueAtTime(620, t0 + k * 0.5 + 0.5);
+  }
+  sg.gain.setValueAtTime(0.0001, t0);
+  sg.gain.exponentialRampToValueAtTime(0.16, t0 + 0.05);
+  sg.gain.setValueAtTime(0.16, t0 + 2.9);
+  sg.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.05);
+  siren.connect(sg).connect(out); siren.start(t0); siren.stop(t0 + 3.1);
+  for (let k = 0; k < 12; k += 1) note(1760, t0 + k * 0.25, 0.09, { type: 'square', peak: 0.12 });
+  return true;
 }
+
+// While the Critical dialog is open the alarm repeats every 20 s (max 10 min) until someone taps it.
+let alarmTimer = null;
+function startCriticalAlarm() {
+  stopCriticalAlarm();
+  let n = 0;
+  alarmTimer = setInterval(() => {
+    n += 1;
+    if (n > 30 || !document.querySelector('.critical-takeover-overlay')) { stopCriticalAlarm(); return; }
+    playTone(2);
+    try { navigator.vibrate?.([400, 150, 400, 150, 400]); } catch { /* unsupported */ }
+  }, 20_000);
+}
+export function stopCriticalAlarm() { if (alarmTimer) clearInterval(alarmTimer); alarmTimer = null; }
 
 // ---------------- notifications ----------------
 export const notifySupported = () => 'Notification' in window && 'serviceWorker' in navigator;
@@ -128,6 +171,7 @@ export function checkRisk(live, { navigate, showCritical }) {
   if (!fresh) return; // old data: show it, but do not sound an alarm
 
   playTone(level);
+  if (level === 2) startCriticalAlarm();
   try { navigator.vibrate?.(level === 2 ? [400, 150, 400, 150, 400] : [300, 150, 300]); } catch { /* unsupported */ }
   if (document.visibilityState !== 'visible') {
     systemNotify(level === 2 ? 'CRITICAL: low dissolved oxygen' : 'Warning: dissolved oxygen dropping',
@@ -173,7 +217,11 @@ export function openAlertSettings() {
             ${perm === 'default' ? raw('<button type="button" class="aq-btn primary" data-act="perm">Enable notifications</button>') : ''}</div></section>
         <section><h4>${ic('volume-2', 16)}Alert sound</h4>
           <label class="aq-switch"><input type="checkbox" data-act="sound" ${soundEnabled() ? 'checked' : ''}><span>Play an alert tone (and vibrate on Android)</span></label>
-          <button type="button" class="aq-btn" data-act="test">${ic('play', 14)}Test the alert</button></section>
+          <div class="aq-test-row">
+            <button type="button" class="aq-btn aq-test-warning" data-act="test-warning">${ic('play', 14)}Test Warning sound</button>
+            <button type="button" class="aq-btn aq-test-critical" data-act="test-critical">${ic('play', 14)}Test Critical sound</button>
+          </div>
+          <p>Warning plays a two-note chime. Critical plays an urgent siren and repeats every 20 seconds until someone taps the critical alert.</p></section>
         <section><h4>${ic('smartphone', 16)}Home screen app</h4>${raw(installHtml)}</section>
         <p class="aq-settings-note">Alerts work while AquaCast is open (on screen or in the background). If the app is fully closed or the phone is asleep for a long time, the phone may pause it; you will see the alert as soon as you open it again.</p>
       </div>`,
@@ -185,13 +233,18 @@ export function openAlertSettings() {
         close(); openAlertSettings();
       });
       m.querySelector('[data-act=sound]')?.addEventListener('change', (e) => { store.set(SOUND_KEY, e.target.checked); unlockAudio(); });
-      m.querySelector('[data-act=test]')?.addEventListener('click', async () => {
+      const test = (level) => async () => {
         unlockAudio();
-        setTimeout(() => playTone(1), 50);
-        try { navigator.vibrate?.([300, 150, 300]); } catch { /* unsupported */ }
-        const shown = await systemNotify('AquaCast test alert', 'This is how a Warning or Critical DO alert will appear on this device.', 1);
-        toast(shown ? 'Test sent: you should hear a tone and see a notification.' : 'Test tone played. Enable notifications to also get a system notification.', 'success');
-      });
+        const played = await new Promise((r) => setTimeout(() => r(playTone(level, true)), 60));
+        try { navigator.vibrate?.(level === 2 ? [400, 150, 400, 150, 400] : [300, 150, 300]); } catch { /* unsupported */ }
+        const shown = await systemNotify(level === 2 ? 'AquaCast test: CRITICAL' : 'AquaCast test: Warning',
+          'This is how a DO alert will appear on this device.', level);
+        if (!played) toast('Sound could not play. Check that the phone is not on silent and the volume is up.', 'error');
+        else toast(shown ? 'Test sent: tone played and a notification was shown.' : 'Test tone played. Enable notifications to also get a system notification.', 'success');
+        if (!soundEnabled()) toast('Note: alert sound is switched off for real alerts on this device.', '');
+      };
+      m.querySelector('[data-act=test-warning]')?.addEventListener('click', test(1));
+      m.querySelector('[data-act=test-critical]')?.addEventListener('click', test(2));
       m.querySelector('[data-act=install]')?.addEventListener('click', async () => {
         if (!installEvent) return;
         installEvent.prompt();
