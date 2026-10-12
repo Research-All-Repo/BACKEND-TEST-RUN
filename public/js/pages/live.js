@@ -156,6 +156,11 @@ export default async function live(root, ctx) {
             ${d.data_quality.flags.map((f) => raw(html`<p>${f.values ? t(`q.${f.code}`, f.values) : f.message}</p>`))}<small>${t('qualityNote')}</small></div></div>`) : ''}
           ${d.risk && !d.risk.available && o ? raw(html`<p class="aq-hero-note">${d.risk.message}</p>`) : ''}
           <div class="aq-hero-limits"><span>${raw(t('limitNormal', { v: esc(fmtNum(rule.watch_boundary_do_mg_l, 1)) }))}</span><span>${raw(t('limitCritical', { v: esc(fmtNum(rule.critical_do_mg_l, 1)) }))}</span></div>
+          <div class="aq-hero-actions">
+            ${urgent ? raw(`<button type="button" class="aq-hero-btn danger" data-hero="aeration">${icon('fan', 17)}${esc(t('goAeration'))}</button>`) : ''}
+            <button type="button" class="aq-hero-btn ${urgent ? '' : 'primary'}" data-hero="log">${ic('clipboard-pen', 16)}${t('recordAction')}</button>
+            ${d.active_alerts ? raw(`<button type="button" class="aq-hero-btn" data-go="alerts">${icon('bell', 16)}${esc(t('activeAlerts', { n: d.active_alerts }).replace('(s)', d.active_alerts > 1 ? 's' : ''))}</button>`) : ''}
+          </div>
 
         </div>
         <div class="aq-hero-side">
@@ -164,22 +169,16 @@ export default async function live(root, ctx) {
           <div class="aq-hero-metric"><span>${ic('droplets', 14)}${t('doSat')}</span><strong>${reading('do_saturation_pct', (v) => `${fmtNum(v, 0)} %`)}</strong><small>${t('doSatNote')}</small></div>
           <div class="aq-hero-metric"><span>${ic('radio', 14)}${t('latest')}</span><strong>${o ? fmtTime(o.timestamp_utc) : '--'}</strong><small>${o ? t('every10', { status: o.record_status.toLowerCase() }) : t('waitingFirst')}</small></div>
         </div>
-        <div class="aq-hero-guide-row">
-          <div class="aq-guide aq-guide-${rk}">
+      </section>`;
+    }
+    function guideHtml() {
+      return html`<div class="aq-guide aq-guide-${rk}">
             <div class="aq-guide-head"><div class="aq-guide-icon">${ic('shield-check', 19)}</div>
               <div><strong class="aq-guide-name">${t('guideKicker')}</strong><small>${t('guideSub')}</small></div></div>
             <span class="aq-guide-hitl">${t('guideHitl')}</span>
             <div class="aq-guide-current"><span>${t('guideCurrent')}</span><strong class="aq-guide-title">${g.title}</strong><p class="aq-guide-desc">${g.description}</p></div>
             <button type="button" class="aq-guide-cta" data-go="forecast">${t('guideCta')}${ic('arrow-right', 16)}</button>
-          </div>
-
-          <div class="aq-hero-actions">
-            ${urgent ? raw(`<button type="button" class="aq-hero-btn danger" data-hero="aeration">${icon('fan', 17)}${esc(t('goAeration'))}</button>`) : ''}
-            <button type="button" class="aq-hero-btn ${urgent ? '' : 'primary'}" data-hero="log">${ic('clipboard-pen', 16)}${t('recordAction')}</button>
-            ${d.active_alerts ? raw(`<button type="button" class="aq-hero-btn" data-go="alerts">${icon('bell', 16)}${esc(t('activeAlerts', { n: d.active_alerts }).replace('(s)', d.active_alerts > 1 ? 's' : ''))}</button>`) : ''}
-          </div>
-        </div>
-      </section>`;
+          </div>`;
     }
     const titleCaseMode = (m) => (m ? m.charAt(0) + m.slice(1).toLowerCase() : 'Unknown');
 
@@ -212,6 +211,7 @@ export default async function live(root, ctx) {
 
         <div class="live-right-stack">
           <article class="dashboard-panel manual-aeration-panel manual-aeration-compact" id="aeration-panel"></article>
+          ${raw(guideHtml())}
         </div>
       </section>
 

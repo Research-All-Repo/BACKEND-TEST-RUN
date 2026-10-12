@@ -851,3 +851,36 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
 .aq-guide-critical .aq-guide-title { color: #881337; } .aq-guide-critical .aq-guide-desc { color: #9f1239; }
 .aq-guide-unknown .aq-guide-current > span { color: #475569; }
 @media (width <= 640px) { .aq-guide { padding: 15px; } .aq-guide-hitl { margin-left: 0; } .aq-guide .aq-guide-title { font-size: 17px; } }
+
+/* ---------- Live Status: a slightly larger status card; guidance sits under the aeration panel ---------- */
+.aq-hero { padding: 26px 26px 24px 30px; gap: 22px; }
+.aq-hero-main { gap: 14px; }
+.aq-hero-risk { font-size: 15px; padding: 7px 15px 7px 11px; }
+.aq-hero-fresh { font-size: 14px; }
+.aq-hero-label { font-size: 14.5px; }
+.aq-hero-number strong { font-size: clamp(60px, 9vw, 88px); }
+.aq-hero-number span { font-size: 21px; }
+.aq-hero-trend b { font-size: 17px; }
+.aq-hero-trend small { font-size: 13.5px; }
+.aq-hero-trend svg { padding: 9px; }
+.aq-hero-limits span { font-size: 13.5px; padding: 6px 13px; }
+.aq-hero-side { gap: 12px; align-content: stretch; }
+.aq-hero-metric { padding: 16px 17px; gap: 4px; border-radius: 18px; justify-content: center; }
+.aq-hero-metric span { font-size: 13px; }
+.aq-hero-metric strong { font-size: 22px; }
+.aq-hero-metric small { font-size: 12.5px; }
+.aq-hero-actions { margin-top: 4px; }
+.live-right-stack .aq-guide { margin: 0; }
+.live-right-stack .aq-guide-hitl { margin-left: 0; }
+@media (width <= 1360px) {
+  /* one column (same breakpoint as the base layout): guidance right after the status card, then the chart, then aeration */
+  .live-insight-grid { display: flex; flex-direction: column; }
+  .live-insight-grid > .live-right-stack { display: contents; }
+  .live-insight-grid .aq-guide { order: -1; }
+}
+@media (width <= 640px) {
+  .aq-hero { padding: 18px 16px 18px 20px; gap: 16px; }
+  .aq-hero-number strong { font-size: 64px; }
+  .aq-hero-metric { padding: 12px 13px; }
+  .aq-hero-metric strong { font-size: 18px; }
+}
