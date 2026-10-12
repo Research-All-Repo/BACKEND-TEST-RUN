@@ -165,12 +165,12 @@ export default async function live(root, ctx) {
           <div class="aq-hero-metric"><span>${ic('radio', 14)}${t('latest')}</span><strong>${o ? fmtTime(o.timestamp_utc) : '--'}</strong><small>${o ? t('every10', { status: o.record_status.toLowerCase() }) : t('waitingFirst')}</small></div>
         </div>
         <div class="aq-hero-guide-row">
-          <div class="aq-guide">
-            <div class="aq-guide-head"><span class="aq-guide-kicker">${ic('compass', 15)}${t('guideKicker')}</span><span class="aq-guide-hitl">${t('guideHitl')}</span></div>
-            <strong class="aq-guide-title">${g.title}</strong>
-            <p class="aq-guide-desc">${g.description}</p>
-            <ol class="aq-guide-steps">${g.steps.map((st) => raw(html`<li>${st}</li>`))}</ol>
-            <p class="aq-guide-note">${ic('user-check', 14)}${t('guideNote')}</p>
+          <div class="aq-guide aq-guide-${rk}">
+            <div class="aq-guide-head"><div class="aq-guide-icon">${ic('shield-check', 19)}</div>
+              <div><strong class="aq-guide-name">${t('guideKicker')}</strong><small>${t('guideSub')}</small></div></div>
+            <span class="aq-guide-hitl">${t('guideHitl')}</span>
+            <div class="aq-guide-current"><span>${t('guideCurrent')}</span><strong class="aq-guide-title">${g.title}</strong><p class="aq-guide-desc">${g.description}</p></div>
+            <button type="button" class="aq-guide-cta" data-go="forecast">${t('guideCta')}${ic('arrow-right', 16)}</button>
           </div>
 
           <div class="aq-hero-actions">

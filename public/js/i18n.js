@@ -1,4 +1,4 @@
-// Language for the operator-facing parts of AquaCast: Live Status, the Operator Decision Guide,
+// Language for the operator-facing parts of AquaCast: Live Status, the Operator Guidance card,
 // alert screens and notifications, and the User Guide. Chosen per device (profile → This device → Language).
 // Technical words operators already use (DO, aerator, reading, sensor, probe) stay in English.
 
@@ -39,7 +39,7 @@ const DICT = {
     aerator: 'Aerator', aeratorNotReady: 'Not ready', aeratorNoController: 'Controller not set up', modeSuffix: '{m} mode', reportOld: 'report is old',
     waterTemp: 'Water temperature', probeDepth: 'Probe depth reading', doSat: 'DO saturation', doSatNote: 'Of the maximum at this temperature',
     latest: 'Latest reading', every10: '{status} · every 10 min', waitingFirst: 'Waiting for first cycle',
-    guideKicker: 'Operator Decision Guide', guideHitl: 'Human-in-the-loop',
+    guideKicker: 'Operator Guidance', guideSub: 'Forecast-informed decision support', guideCurrent: 'Current guidance', guideCta: 'View Full Forecast', guideHitl: 'Human-in-the-loop',
     guideNote: 'AquaCast supports the decision; the operator makes it. Aeration is only switched when an operator requests it.',
     goAeration: 'Go to aeration control', recordAction: 'Record what you did', activeAlerts: '{n} active alert(s)',
     // critical screen
@@ -57,7 +57,7 @@ const DICT = {
     calibBy: ' (turned on by {by}{at})', calibUntil: ' until {t}, when they switch back on automatically',
     promptInstall: 'Install AquaCast to get alerts', promptBlocked: 'Alerts are blocked on this device', promptTurnOn: 'Turn on alerts for this device',
     // settings
-    language: 'Language', languageNote: 'Changes Live Status, the Decision Guide, alert screens, phone notifications and the User Guide on this device.',
+    language: 'Language', languageNote: 'Changes Live Status, Operator Guidance, alert screens, phone notifications and the User Guide on this device.',
   },
   fil: {
     'risk.NORMAL': 'NORMAL', 'risk.WATCH': 'BANTAYAN', 'risk.WARNING': 'BABALA', 'risk.CRITICAL': 'KRITIKAL', 'risk.DATA_UNAVAILABLE': 'WALANG DATOS',
@@ -79,7 +79,7 @@ const DICT = {
     aerator: 'Aerator', aeratorNotReady: 'Hindi pa handa', aeratorNoController: 'Wala pang controller', modeSuffix: '{m} mode', reportOld: 'luma na ang ulat',
     waterTemp: 'Temperatura ng tubig', probeDepth: 'Sukat sa lalim ng probe', doSat: 'DO saturation', doSatNote: 'Bahagdan ng pinakamataas sa temperaturang ito',
     latest: 'Huling reading', every10: '{status} · bawat 10 minuto', waitingFirst: 'Hinihintay ang unang reading',
-    guideKicker: 'Gabay sa Pagpapasya ng Operator', guideHitl: 'Tao ang magpapasya',
+    guideKicker: 'Gabay para sa Operator', guideSub: 'Gabay sa pagpapasya batay sa forecast', guideCurrent: 'Kasalukuyang gabay', guideCta: 'Tingnan ang buong forecast', guideHitl: 'Tao ang magpapasya',
     guideNote: 'Tumutulong ang AquaCast sa pagpapasya, pero ang operator ang magpapasya. Bubuksan lang ang aerator kapag hiniling ng operator.',
     goAeration: 'Pumunta sa aeration control', recordAction: 'Itala ang ginawa mo', activeAlerts: '{n} aktibong alerto',
     critEyebrow: 'Kritikal • Kailangang suriin agad', critTitle: 'Kritikal na mababa ang dissolved oxygen',
@@ -94,7 +94,7 @@ const DICT = {
     calibText: 'Kina-calibrate ang dissolved oxygen probe{by}. Naka-pause ang mga alerto at phone notification{until} (puwede itong tapusin nang mas maaga ng Administrator sa System Settings).',
     calibBy: ' (binuksan ni {by}{at})', calibUntil: ' hanggang {t}, at kusang babalik pagkatapos',
     promptInstall: 'I-install ang AquaCast para makatanggap ng alerto', promptBlocked: 'Naka-block ang alerto sa device na ito', promptTurnOn: 'Buksan ang alerto sa device na ito',
-    language: 'Wika', languageNote: 'Binabago ang Live Status, Gabay sa Pagpapasya, alert screen, phone notification at User Guide sa device na ito.',
+    language: 'Wika', languageNote: 'Binabago ang Live Status, Gabay para sa Operator, alert screen, phone notification at User Guide sa device na ito.',
   },
 };
 
@@ -104,16 +104,16 @@ export function t(key, vars = {}) {
   return s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] === undefined ? '' : String(vars[k])));
 }
 
-/** Operator Decision Guide in Filipino (English lives in ui.js GUIDANCE). */
+/** Operator Guidance in Filipino (English lives in ui.js GUIDANCE). */
 export const GUIDANCE_FIL = {
-  CRITICAL: { title: 'Suriin agad', description: 'Tiyakin agad ang reading ng sensor at ang nakikitang kalagayan ng pond, saka magpasya ng tamang aksyon ayon sa pinahihintulutang pamamaraan ng pond.',
+  CRITICAL: { title: 'Suriin agad', description: 'Nasa o mas mababa na sa kritikal na antas ang dissolved oxygen. Tiyakin ngayon ang reading at ang kalagayan ng pond, saka magpasya ng aksyon gaya ng aeration.',
     steps: ['Tiyakin ang DO reading ngayon at tingnan kung may problema ang sensor o ang datos.', 'Inspeksyunin ang pond at balikan ang mga huling gawain (pagpapakain, aeration, pagpapalit ng tubig).', 'Magpasya ng aksyon. Ang operator ang magbubukas ng aerator mula sa Live Status kung kailangan.'] },
-  WARNING: { title: 'Maghanda sa pagkilos', description: 'Ayon sa AquaCast, kailangan na ng atensyon ng operator bago lumala ang kalagayan.',
+  WARNING: { title: 'Maghanda sa pagkilos', description: 'Ipinapakita ng forecast na lumalala ang kalagayan ng dissolved oxygen. Balikan ang mga huling kondisyon at alamin kung kailangan ng aksyon.',
     steps: ['Tiyakin ang DO reading ngayon at tingnan ang forecast.', 'Alamin kung kailan inaasahang bababa sa kritikal ang DO at balikan ang mga huling gawain sa pond.', 'Piliin ang tamang aksyon. Kung aeration, gamitin ang Manual Aeration control sa Live Status.'] },
-  WATCH: { title: 'Dagdagan ang pagbabantay', description: 'Nakikita sa forecast na posibleng bumaba ang DO, pero wala pang kritikal na kalagayan.',
+  WATCH: { title: 'Dagdagan ang pagbabantay', description: 'Ipinapakita ng forecast na maaaring bumaba ang dissolved oxygen sa mababang antas. Bantayan ang susunod na mga forecast at balikan ang mga huling gawain sa pond.',
     steps: ['Bantayan nang mas malapitan ang susunod na mga forecast.', 'Tingnan kung kailan unang papasok ang DO sa mababang antas.', 'Balikan ang mga huling naitalang gawain: pagpapakain, aeration, pagpapalit ng tubig o maintenance.'] },
-  NORMAL: { title: 'Ipagpatuloy ang karaniwang pagbabantay', description: 'Walang nakikitang problema sa dissolved oxygen sa kasalukuyang reading at forecast.',
+  NORMAL: { title: 'Ipagpatuloy ang karaniwang pagbabantay', description: 'Walang problema sa dissolved oxygen ngayon at sa 2-oras na forecast. Ipagpatuloy ang regular na pagmamasid at pagtatala ng mga gawain.',
     steps: ['Ipagpatuloy ang regular na pagtingin sa DO at sa forecast.', 'Ipagpatuloy ang karaniwang pagmamasid sa pond at pagtatala ng mga gawain.', 'Tingnan ang anumang bagong alerto kung magbago ang antas ng panganib.'] },
-  DATA_UNAVAILABLE: { title: 'Tiyakin kung may datos', description: 'Hindi makapagbibigay ng buong gabay ang AquaCast hangga’t walang wastong reading at forecast.',
+  DATA_UNAVAILABLE: { title: 'Tiyakin kung may datos', description: 'Kulang ang kasalukuyang reading o forecast kaya limitado ang gabay. Suriin ang sensor at ang device.',
     steps: ['Tingnan kung may DO reading ngayon.', 'Tiyakin kung nagawa ang lahat ng forecast.', 'Suriin ang sensor at ang device kung patuloy na walang datos.'] },
 };

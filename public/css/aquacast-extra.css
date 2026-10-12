@@ -817,3 +817,37 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
 .account-profile-note a { color: #0f766e; font-weight: 700; }
 @media (width <= 520px) { .aq-pf-actions .aq-btn { flex: 1; justify-content: center; } }
 .aq-profile2 [hidden] { display: none !important; }
+
+/* ---------- Operator Guidance card (Live Status) ---------- */
+.aq-guide { border-left: 1px solid #e2e8f0; padding: 18px; border-radius: 20px; background: #fff; box-shadow: 0 1px 2px #0f172a0a; }
+.aq-guide-head { display: flex; align-items: center; justify-content: flex-start; gap: 12px; margin: 0; }
+.aq-guide-icon { flex-shrink: 0; width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; background: #e6f6f4; color: #0f766e; }
+.aq-guide-name { display: block; font-size: 18px; font-weight: 850; color: #0f172a; letter-spacing: -0.01em; }
+.aq-guide-head small { display: block; margin-top: 2px; font-size: 13px; color: #64748b; }
+.aq-guide-hitl { display: inline-block; margin: 10px 0 0 56px; padding: 4px 11px; border-radius: 999px; background: #e6f6f4; color: #0f766e; font-size: 11.5px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.aq-guide-current { margin-top: 16px; padding: 16px; border-radius: 16px; border: 1px solid #e2e8f0; background: #f8fafc; position: relative; }
+.aq-guide-current::before { content: ''; position: absolute; left: 0; right: 0; top: -9px; border-top: 1px solid #eef2f6; }
+.aq-guide-current > span { display: block; font-size: 12px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: #0f766e; }
+.aq-guide .aq-guide-title { display: block; margin-top: 6px; font-size: 18px; font-weight: 850; line-height: 1.3; color: #0f172a; }
+.aq-guide .aq-guide-desc { margin: 6px 0 0; font-size: 14px; line-height: 1.6; color: #475569; }
+.aq-guide-cta { margin-top: 14px; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 16px; border: 0; border-radius: 14px;
+  background: #0f8f86; color: #fff; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; transition: background-color 160ms ease, transform 160ms var(--ease-out, ease-out); }
+.aq-guide-cta:hover { background: #0d7f77; }
+.aq-guide-cta:active { transform: scale(0.98); }
+.aq-guide-cta svg { transition: transform 160ms var(--ease-out, ease-out); }
+.aq-guide-cta:hover svg { transform: translateX(3px); }
+/* the current-guidance box takes the colour of the risk level */
+.aq-guide-normal .aq-guide-current { background: #f0fdf4; border-color: #bbf7d0; }
+.aq-guide-normal .aq-guide-current > span { color: #15803d; }
+.aq-guide-normal .aq-guide-title { color: #14532d; } .aq-guide-normal .aq-guide-desc { color: #166534; }
+.aq-guide-watch .aq-guide-current { background: #f0f9ff; border-color: #bae6fd; }
+.aq-guide-watch .aq-guide-current > span { color: #0369a1; }
+.aq-guide-watch .aq-guide-title { color: #0c4a6e; } .aq-guide-watch .aq-guide-desc { color: #075985; }
+.aq-guide-warning .aq-guide-current { background: #fff7ed; border-color: #fed7aa; }
+.aq-guide-warning .aq-guide-current > span { color: #c2410c; }
+.aq-guide-warning .aq-guide-title { color: #7c2d12; } .aq-guide-warning .aq-guide-desc { color: #9a3412; }
+.aq-guide-critical .aq-guide-current { background: #fff1f2; border-color: #fecdd3; }
+.aq-guide-critical .aq-guide-current > span { color: #be123c; }
+.aq-guide-critical .aq-guide-title { color: #881337; } .aq-guide-critical .aq-guide-desc { color: #9f1239; }
+.aq-guide-unknown .aq-guide-current > span { color: #475569; }
+@media (width <= 640px) { .aq-guide { padding: 15px; } .aq-guide-hitl { margin-left: 0; } .aq-guide .aq-guide-title { font-size: 17px; } }

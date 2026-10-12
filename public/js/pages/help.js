@@ -29,7 +29,7 @@ const EN = {
         <li><b>Dissolved oxygen now</b> and whether it is rising or falling over the last hour.</li>
         <li><b>Live / Sync delayed / Offline</b>: how fresh the data is. A new reading arrives every 10 minutes. Press <b>Refresh</b> (top right) if it seems stuck.</li>
         <li><b>Check probe</b>: the readings look wrong (no change for an hour, a sudden jump, an impossible value). Check the sensor before acting on the numbers.</li>
-        <li><b>Operator Decision Guide</b>: what to do at the current risk level.</li>
+        <li><b>Operator Guidance</b>: the current guidance for this risk level, based on the forecast. Tap <i>View Full Forecast</i> for the details behind it.</li>
       </ul>`),
     S('respond', 'triangle-alert', 'When an alert arrives', `
       <ol>
@@ -93,7 +93,7 @@ const FIL = {
         <li><b>Dissolved oxygen ngayon</b> at kung tumataas o bumababa ito sa nakaraang oras.</li>
         <li><b>Live / Naantala / Offline</b>: gaano kabago ang datos. May bagong reading bawat 10 minuto. Pindutin ang <b>Refresh</b> (kanang itaas) kung parang hindi gumagalaw.</li>
         <li><b>Suriin ang probe</b>: mukhang mali ang mga reading (walang pagbabago nang isang oras, biglang talon, imposibleng halaga). Tingnan muna ang sensor bago kumilos.</li>
-        <li><b>Gabay sa Pagpapasya ng Operator</b>: ano ang gagawin sa kasalukuyang antas.</li>
+        <li><b>Gabay para sa Operator</b>: ang kasalukuyang gabay para sa antas na ito, batay sa forecast. Pindutin ang <i>Tingnan ang buong forecast</i> para sa detalye.</li>
       </ul>`),
     S('respond', 'triangle-alert', 'Kapag may dumating na alerto', `
       <ol>

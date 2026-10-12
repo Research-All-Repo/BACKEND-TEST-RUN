@@ -1466,7 +1466,7 @@ html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dash
 html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dashboard-aeration-advisory-kicker { color: #e68ca2; }
 html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dashboard-aeration-advisory-action { background: #be123c; box-shadow: 0 5px 12px #be123c29; }
 
-/* ---- from aquacast-extra.css (277 rules) ---- */
+/* ---- from aquacast-extra.css (306 rules) ---- */
 html[data-theme="dark"] .aq-freshness.sync_delayed { background: #29240f; border-color: #f59e0b55; color: #eabca0; }
 html[data-theme="dark"] .aq-freshness.offline, html[data-theme="dark"] .aq-freshness.no_data, html[data-theme="dark"] .aq-freshness.supabase_unavailable, html[data-theme="dark"] .aq-freshness.backend_unreachable { background: #2f1214; border-color: #7d303d44; color: #e79ab0; }
 html[data-theme="dark"] .aq-freshness.browser_offline { background: #171c21; border-color: #3f4852; color: #c1c9d5; }
@@ -1758,6 +1758,35 @@ html[data-theme="dark"] .aq-pf-field small { color: #a8b0bb; }
 html[data-theme="dark"] .aq-pf-note { color: #b8c0ca; }
 html[data-theme="dark"] .aq-pf-device { border: 1px solid #373f4b; }
 html[data-theme="dark"] .account-profile-note a { color: #adebe6; }
+html[data-theme="dark"] .aq-guide { border-left: 1px solid #373f4b; background: #232831; box-shadow: 0 1px 2px #0f172a0a; }
+html[data-theme="dark"] .aq-guide-icon { background: #111a19; color: #adebe6; }
+html[data-theme="dark"] .aq-guide-name { color: #d3daeb; }
+html[data-theme="dark"] .aq-guide-head small { color: #a8b0bb; }
+html[data-theme="dark"] .aq-guide-hitl { background: #111a19; color: #adebe6; }
+html[data-theme="dark"] .aq-guide-current { border: 1px solid #373f4b; background: #1d2329; }
+html[data-theme="dark"] .aq-guide-current::before { border-top: 1px solid #343d47; }
+html[data-theme="dark"] .aq-guide-current > span { color: #adebe6; }
+html[data-theme="dark"] .aq-guide .aq-guide-title { color: #d3daeb; }
+html[data-theme="dark"] .aq-guide .aq-guide-desc { color: #b8c0ca; }
+html[data-theme="dark"] .aq-guide-cta { background: #0f8f86; color: #f2f2f2; }
+html[data-theme="dark"] .aq-guide-cta:hover { background: #0d7f77; }
+html[data-theme="dark"] .aq-guide-normal .aq-guide-current { background: #14291a; border-color: #2b633f; }
+html[data-theme="dark"] .aq-guide-normal .aq-guide-current > span { color: #a9e7c0; }
+html[data-theme="dark"] .aq-guide-normal .aq-guide-title { color: #bfe8cf; }
+html[data-theme="dark"] .aq-guide-normal .aq-guide-desc { color: #b6e7c9; }
+html[data-theme="dark"] .aq-guide-watch .aq-guide-current { background: #11222e; border-color: #255167; }
+html[data-theme="dark"] .aq-guide-watch .aq-guide-current > span { color: #98d1f0; }
+html[data-theme="dark"] .aq-guide-watch .aq-guide-title { color: #b0d7ed; }
+html[data-theme="dark"] .aq-guide-watch .aq-guide-desc { color: #a5d5ef; }
+html[data-theme="dark"] .aq-guide-warning .aq-guide-current { background: #2b1f10; border-color: #6d4c26; }
+html[data-theme="dark"] .aq-guide-warning .aq-guide-current > span { color: #e9a68a; }
+html[data-theme="dark"] .aq-guide-warning .aq-guide-title { color: #e9baab; }
+html[data-theme="dark"] .aq-guide-warning .aq-guide-desc { color: #e8af9d; }
+html[data-theme="dark"] .aq-guide-critical .aq-guide-current { background: #2f1214; border-color: #62222a; }
+html[data-theme="dark"] .aq-guide-critical .aq-guide-current > span { color: #e68ca2; }
+html[data-theme="dark"] .aq-guide-critical .aq-guide-title { color: #e8a5ba; }
+html[data-theme="dark"] .aq-guide-critical .aq-guide-desc { color: #e79ab0; }
+html[data-theme="dark"] .aq-guide-unknown .aq-guide-current > span { color: #b8c0ca; }
 
 /* ---- base layer ---- */
 html[data-theme="dark"] { color-scheme: dark; --chart-surface: #161b22; --ring: 0 0 0 1px #ffffff12, 0 1px 2px #0000004d, 0 12px 28px -14px #00000099; }

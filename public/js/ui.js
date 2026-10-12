@@ -90,15 +90,15 @@ export function doBand(value, rule) {
 }
 
 export const GUIDANCE = {
-  CRITICAL: { title: 'Immediate operator review', description: 'Verify the current sensor reading and observable pond conditions promptly, then determine the appropriate management response according to authorized pond procedures.',
+  CRITICAL: { title: 'Immediate operator review', description: 'Dissolved oxygen is at or below the critical level. Verify the reading and pond conditions now, then decide on a management response such as aeration.',
     steps: ['Confirm the current DO reading and check for sensor or data-quality issues.', 'Inspect current pond conditions and review recent management activities.', 'Determine the appropriate operator response. Manual aeration remains operator-initiated from Live Status.'] },
-  WARNING: { title: 'Prepare for operator response', description: 'AquaCast indicates that operator attention is needed before conditions deteriorate further.',
+  WARNING: { title: 'Prepare for operator attention', description: 'The forecast indicates increasing dissolved oxygen concern. Review recent conditions and determine whether a management response is appropriate.',
     steps: ['Verify the current DO reading and review the forecast progression.', 'Check the projected timing of any critical threshold crossing and recent pond activities.', 'Select the appropriate management response. If manual aeration is chosen, use the Manual Aeration control on Live Status.'] },
-  WATCH: { title: 'Increase observation', description: 'Forecast deterioration is developing, but a critical condition is not yet indicated by the current classification.',
+  WATCH: { title: 'Increase observation', description: 'The forecast shows dissolved oxygen may move toward the suboptimal range. Watch the next forecast cycles and review recent pond activities.',
     steps: ['Monitor the next forecast cycles more closely.', 'Review the horizon where DO first enters the suboptimal range.', 'Check recent feeding, aeration, water exchange, maintenance, or other recorded pond activities.'] },
-  NORMAL: { title: 'Continue routine monitoring', description: 'No elevated dissolved oxygen concern is indicated by the current observation and forecast window.',
+  NORMAL: { title: 'Continue routine monitoring', description: 'Current conditions and the 2-hour forecast show no dissolved oxygen concern. Continue regular observation and activity logging.',
     steps: ['Continue regular monitoring of current DO and forecast updates.', 'Maintain normal pond observation and activity logging.', 'Review any new alerts if the risk state changes in a later cycle.'] },
-  DATA_UNAVAILABLE: { title: 'Verify data availability', description: 'AquaCast cannot provide complete decision support until valid current and forecast information is available.',
+  DATA_UNAVAILABLE: { title: 'Verify data availability', description: 'Current or forecast data is incomplete, so guidance is limited. Check the sensor and device status.',
     steps: ['Check whether the current DO observation is available.', 'Verify that all required forecast horizons were generated successfully.', 'Review sensor and device status if data remain unavailable.'] },
 };
 export const guidanceFor = (s) => { const G = lang() === 'fil' ? GUIDANCE_FIL : GUIDANCE; return G[s] || G.DATA_UNAVAILABLE; };
