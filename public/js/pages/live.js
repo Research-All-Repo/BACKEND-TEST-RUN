@@ -210,8 +210,8 @@ export default async function live(root, ctx) {
         </section>
 
         <div class="live-right-stack">
-          <article class="dashboard-panel manual-aeration-panel manual-aeration-compact" id="aeration-panel"></article>
           ${raw(guideHtml())}
+          <article class="dashboard-panel manual-aeration-panel manual-aeration-compact" id="aeration-panel"></article>
         </div>
       </section>
 
