@@ -311,8 +311,8 @@ async function route(opts) {
     if (!current()) return;
     const cleanup = await mod.default(view, ctx(navOpts));
     if (current()) state.cleanup = typeof cleanup === 'function' ? cleanup : null;
+    else if (typeof cleanup === 'function') { try { cleanup(); } catch { /* ignore */ } } // page was left while loading
     if (navOpts.keepScroll && current()) requestAnimationFrame(() => { host.style.minHeight = ''; window.scrollTo(0, navOpts.keepScroll); });
-    else if (typeof cleanup === 'function') { try { cleanup(); } catch { /* ignore */ } }
   } catch (err) {
     if (!current()) return; // the user already left this page; its late error is irrelevant
     if (!err.code) reportError(`${id} page: ${err.message}`, err.stack);
