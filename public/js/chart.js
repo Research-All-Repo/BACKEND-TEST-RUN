@@ -600,9 +600,21 @@ export function mountChart(host, rawConfig) {
           const dash = se.dotted ? 'stroke-dasharray="1.5 5" stroke-linecap="round"' : se.dashed ? 'stroke-dasharray="6 5"' : '';
           s += `<path d="${pathOf(se.points)}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2}" stroke-linecap="round" stroke-linejoin="round" ${dash}/>`;
         }
+        let ringed = false;
         if (se.markers === 'ring') { // a small hollow dot on each reading, when there is room for them
           const vp = se.points.filter(valid);
-          if (vp.length && plotW / vp.length >= 9) for (const pt of vp) s += `<circle cx="${sx(+pt.x).toFixed(1)}" cy="${sy(pt.y).toFixed(1)}" r="3.2" style="fill:var(--chart-surface,#fff)" stroke="${se.color}" stroke-width="2"/>`;
+          if (vp.length && plotW / vp.length >= 9) {
+            ringed = true;
+            for (const pt of vp) s += `<circle cx="${sx(+pt.x).toFixed(1)}" cy="${sy(pt.y).toFixed(1)}" r="3.2" style="fill:var(--chart-surface,#fff)" stroke="${se.color}" stroke-width="2"/>`;
+          }
+        }
+        if (!ringed && !(se.dots ?? se.points.length <= 14)) {
+          // a reading with gaps on both sides has no line to sit on: always draw it as a dot
+          se.points.forEach((pt, i) => {
+            if (valid(pt) && !valid(se.points[i - 1] || {}) && !valid(se.points[i + 1] || {})) {
+              s += `<circle cx="${sx(+pt.x).toFixed(1)}" cy="${sy(pt.y).toFixed(1)}" r="2.6" fill="${se.color}"/>`;
+            }
+          });
         }
         if (se.dots ?? se.points.length <= 14) {
           for (const pt of se.points) if (valid(pt)) s += `<circle cx="${sx(+pt.x)}" cy="${sy(pt.y)}" r="${pt.r || 4}" fill="${pt.fill || se.color}" style="stroke:var(--chart-surface,#fff)" stroke-width="2"/>`;

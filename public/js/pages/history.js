@@ -101,10 +101,10 @@ export default async function history(root, ctx) {
           zones: doZones(rule), thresholds: doThresholds(rule),
           annotateMin: { label: (m) => `Lowest DO ${m.y.toFixed(2)} · ${fmtDateTime(m.x.toISOString())}` },
           series: [
-            { name: 'Dissolved oxygen', color: DO_COLOR, width: 2.4, points: pts, dots: false,
+            { name: 'Dissolved oxygen', color: DO_COLOR, width: 2.4, points: pts, dots: false, markers: 'ring',
               band: bucket > 10 ? series.data.map((r) => ({ x: at(r), lo: r.do_min, hi: r.do_max })) : null,
               bandLabel: bucket > 10 ? 'DO lowest–highest in period' : null },
-            { name: ov.label, color: CONTEXT_COLOR, axis: 'right', points: series.data.map((r) => ({ x: at(r), y: r[st.overlay] })), dots: false,
+            { name: ov.label, color: CONTEXT_COLOR, axis: 'right', points: series.data.map((r) => ({ x: at(r), y: r[st.overlay] })), dots: false, markers: 'ring',
               format: (v) => fmtNum(v, ov.d) },
           ] },
       ],

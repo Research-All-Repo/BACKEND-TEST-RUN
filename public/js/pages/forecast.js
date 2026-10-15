@@ -151,7 +151,7 @@ export default async function forecast(root) {
     panels: [{ title: 'Dissolved oxygen', unit: 'mg/L', zones: doZones(rule), thresholds: doThresholds(rule), domain: doDomain([...obsPts, ...fcPts].map((q) => q.y).concat(cur), rule),
       marker: { x: origin, label: 'Now' },
       series: [
-        { name: 'Measured (last 2 h)', color: DO_COLOR, width: 2.6, dots: false, points: obsPts.length ? obsPts : [{ x: origin, y: cur }] },
+        { name: 'Measured (last 2 h)', color: DO_COLOR, width: 2.6, dots: false, markers: 'ring', points: obsPts.length ? obsPts : [{ x: origin, y: cur }] },
         { name: 'Forecast (next 2 h)', color: FORECAST_COLOR, dashed: true, dots: true, width: 2.2, endLabel: true,
           points: [{ x: origin, y: cur, fill: DO_COLOR, r: 5 }, ...fcPts] },
       ] }],
