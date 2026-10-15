@@ -71,12 +71,14 @@ router.get('/', async (req, res, next) => {
 router.get('/pulse', async (req, res, next) => {
   try {
     const { db } = req.auth;
-    const [risk, testAlert] = await Promise.all([
+    const [risk, obs, testAlert] = await Promise.all([
       db.from('risk_assessments').select('risk_id, current_risk_state').order('assessment_timestamp_utc', { ascending: false }).limit(1).maybeSingle(),
+      db.from('raw_observations').select('timestamp_utc').order('timestamp_utc', { ascending: false }).limit(1).maybeSingle(),
       S.getTestAlert(db),
     ]);
     const calibration = await getCalibration();
-    res.json({ data: { risk_id: risk.data?.risk_id || null, state: risk.data?.current_risk_state || null, test_alert_id: testAlert?.id || null, calibration: calibration.enabled } });
+    res.json({ data: { risk_id: risk.data?.risk_id || null, state: risk.data?.current_risk_state || null, observation_utc: obs.data?.timestamp_utc || null,
+      test_alert_id: testAlert?.id || null, calibration: calibration.enabled } });
   } catch (err) {
     next(err);
   }

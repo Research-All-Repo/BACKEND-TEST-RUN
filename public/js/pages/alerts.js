@@ -113,5 +113,7 @@ export default async function alerts(root, ctx) {
 
   await load();
   const t = setInterval(load, 60_000);
-  return () => clearInterval(t);
+  const onNewReading = () => load(); // a new 10-minute reading may be a new alert: show it at once
+  window.addEventListener('aq-new-reading', onNewReading);
+  return () => { clearInterval(t); window.removeEventListener('aq-new-reading', onNewReading); };
 }

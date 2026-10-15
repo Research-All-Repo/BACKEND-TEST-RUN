@@ -601,22 +601,44 @@ async function refreshDashboard() {
   }
 }
 
-// Full refresh every 60 s, plus a tiny "anything new?" check every 15 s while the dashboard is
-// on screen, so a new Warning/Critical reading or a test alert shows up within seconds.
+// Full refresh every 60 s, plus a tiny "anything new?" check while the dashboard is on screen.
+// Readings arrive right after every 10-minute mark (:00, :10, :20 ...), so in the first 2 minutes
+// after a mark, until that reading is in, the check runs every 5 s; otherwise every 15 s.
+// A new reading redraws the page on screen at once (no waiting for the 60 s refresh).
+const CYCLE_MS = 10 * 60_000;
+function nextPulseDelay(now = Date.now()) {
+  const sinceMark = now % CYCLE_MS; // 10-minute marks are the same in UTC and Manila time
+  const toMark = CYCLE_MS - sinceMark;
+  if (toMark < 15_000) return toMark + 5_000; // first check 5 s after the coming mark
+  const newest = state.live?.observation?.timestamp_utc ? new Date(state.live.observation.timestamp_utc).getTime() : 0;
+  const waiting = newest < now - sinceMark; // this mark's reading has not arrived yet
+  return waiting && sinceMark < 120_000 ? 5_000 : 15_000;
+}
 async function pulse() {
   if (document.visibilityState !== 'visible' || !state.live) return;
   try {
     const { data } = await get('/api/live/pulse');
-    if (data.risk_id !== (state.live.risk?.risk_id || null) || (data.test_alert_id && data.test_alert_id !== state.live.test_alert?.id)
-      || (data.calibration !== undefined && !!data.calibration !== !!state.live.calibration?.enabled)) refreshLive();
+    const t = (v) => (v ? new Date(v).getTime() : 0); // compare times, not text (+08:00 vs Z)
+    const newReading = (data.observation_utc && t(data.observation_utc) > t(state.live.observation?.timestamp_utc))
+      || data.risk_id !== (state.live.risk?.risk_id || null);
+    if (newReading) {
+      // the page on screen redraws itself (Live Status reloads the live data too); otherwise refresh here
+      const ev = new CustomEvent('aq-new-reading', { cancelable: true });
+      if (window.dispatchEvent(ev)) await refreshLive();
+    } else if ((data.test_alert_id && data.test_alert_id !== state.live.test_alert?.id)
+      || (data.calibration !== undefined && !!data.calibration !== !!state.live.calibration?.enabled)) await refreshLive();
   } catch { /* the 60 s refresh reports errors */ }
+}
+function schedulePulse() {
+  clearTimeout(state.pulse);
+  state.pulse = setTimeout(async () => { await pulse(); if (state.poll) schedulePulse(); }, nextPulseDelay());
 }
 function startPolling() {
   stopPolling(); refreshLive();
   state.poll = setInterval(refreshLive, 60_000);
-  state.pulse = setInterval(pulse, 15_000);
+  schedulePulse();
 }
-function stopPolling() { if (state.poll) clearInterval(state.poll); if (state.pulse) clearInterval(state.pulse); state.poll = null; state.pulse = null; }
+function stopPolling() { if (state.poll) clearInterval(state.poll); clearTimeout(state.pulse); state.poll = null; state.pulse = null; }
 window.addEventListener('online', refreshLive);
 // language changed (profile → This device → Language): redraw the page and banners in place
 window.addEventListener('aq-lang', () => {

@@ -32,12 +32,16 @@ if ls hardware/*.py >/dev/null 2>&1; then cp hardware/*.py /opt/aquacast-edge/; 
 install -d -m 755 /opt/aquacast-edge/models
 [ -d models ] && cp -r models/. /opt/aquacast-edge/models/ || true
 find /opt/aquacast-edge -name '__pycache__' -prune -exec rm -rf {} +
+# files copied from Windows (scp / USB) can arrive as owner-only: the service user must be able to read them
+chmod -R a+rX /opt/aquacast-edge
 
 echo "4/6 Python environment (+ requirements.txt)"
 [ -x /opt/aquacast-edge/venv/bin/python ] || python3 -m venv --system-site-packages /opt/aquacast-edge/venv
 if grep -qvE '^\s*(#|$)' requirements.txt; then
   /opt/aquacast-edge/venv/bin/pip install -q -r requirements.txt
 fi
+
+chmod -R a+rX /opt/aquacast-edge  # again, for packages pip just installed
 
 echo "5/6 settings and data folder"
 install -d -m 750 -o root -g aquacast /etc/aquacast

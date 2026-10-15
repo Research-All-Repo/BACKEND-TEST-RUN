@@ -398,7 +398,16 @@ export default async function live(root, ctx) {
 
   await render();
   timer = setInterval(render, 60_000);
-  return () => { clearInterval(timer); if (cmdPoll) clearInterval(cmdPoll); chart?.destroy(); };
+  // a new 10-minute reading arrived (app.js checks every few seconds after each mark): redraw now
+  let redrawing = false;
+  const onNewReading = async (e) => {
+    e.preventDefault(); // render() reloads the live data itself
+    if (redrawing) return;
+    redrawing = true;
+    try { await render(); } finally { redrawing = false; }
+  };
+  window.addEventListener('aq-new-reading', onNewReading);
+  return () => { clearInterval(timer); if (cmdPoll) clearInterval(cmdPoll); window.removeEventListener('aq-new-reading', onNewReading); chart?.destroy(); };
 }
 
 export { esc };
