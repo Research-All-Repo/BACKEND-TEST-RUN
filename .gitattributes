@@ -1,0 +1,3 @@
+# Raspberry Pi files must keep Linux line endings even when committed from Windows
+edge-pi/** text eol=lf
+*.sh text eol=lf

@@ -83,3 +83,38 @@ test('warning performance: lead time, missed event, false alarm, acted-on warnin
   assert.equal(r.not_acknowledged, 1);
   assert.equal(r.with_action_within_2h, 1);
 });
+
+test('edge cycle validation mirrors the database rules', () => {
+  const { validateCycle } = require('../src/services/edge-validate');
+  const id = () => require('crypto').randomUUID();
+  const models = [30, 60, 90, 120].map((h) => ({ model_id: `00000000-0000-4000-8000-0000000000${h === 120 ? '12' : h}`.slice(0, 36), forecast_horizon_min: h }));
+  const t0 = '2026-10-05T11:50:00.000Z';
+  const plus = (m) => new Date(new Date(t0).getTime() + m * 60000).toISOString();
+  const sensors = { do_mg_l: 5.8, do_mg_l_status: 'VALID', do_saturation_pct: 75, do_saturation_status: 'VALID', water_temp_c: 28, water_temp_status: 'VALID',
+    ph_value: 7.4, ph_status: 'VALID', light_lux: 100, light_status: 'VALID', air_temp_c: 29, air_temp_status: 'VALID',
+    relative_humidity_pct: 80, humidity_status: 'VALID', atmospheric_pressure_hpa: 1010, pressure_status: 'VALID' };
+  const make = () => ({
+    observation: { observation_id: id(), timestamp_utc: t0, acquisition_started_at_utc: plus(0.05), acquisition_completed_at_utc: plus(0.2), record_status: 'COMPLETE', ...sensors },
+    health: { timestamp_utc: plus(0.3), wifi_connected: true, wifi_signal_rssi_dbm: -60, internet_reachable: true, rs485_bus_status: 'OK', i2c_bus_status: 'OK', local_database_operational: true },
+    forecasts: models.map((m) => ({ forecast_id: id(), model_id: m.model_id, generated_at_utc: plus(0.4), target_timestamp_utc: plus(m.forecast_horizon_min),
+      horizon_minutes: m.forecast_horizon_min, predicted_do_mg_l: 5.5, forecast_status: 'VALID' })),
+    risk: { risk_id: id(), assessment_timestamp_utc: plus(0.5), current_risk_state: 'NORMAL', forecast_outlook: 'NO_CROSSING_EXPECTED', expected_threshold_crossing_utc: null, rule_version: 'RISK-RULE-1.0' },
+  });
+  const check = (c) => validateCycle(c, { models, now: now.getTime() });
+  const ok = check(make());
+  assert.equal(ok.ok, true, ok.error);
+  assert.equal(ok.rows.obs.sync_status, 'SYNCED');
+  assert.equal(ok.rows.forecasts.length, 4);
+
+  const bad = (mut, pattern) => { const c = make(); mut(c); const r = check(c); assert.equal(r.ok, false); assert.match(r.error, pattern); };
+  bad((c) => { c.observation.timestamp_utc = '2026-10-05T13:00:00Z'; }, /future/);
+  bad((c) => { c.observation.do_mg_l = 25; }, /outside the accepted range/);
+  bad((c) => { c.observation.timestamp_utc = '2026-10-05 11:50'; }, /ISO 8601/);
+  bad((c) => { c.forecasts[0].target_timestamp_utc = plus(31); }, /reading time \+ 30/);
+  bad((c) => { c.forecasts[1].model_id = id(); }, /not registered/);
+  bad((c) => { c.forecasts[2].forecast_status = 'MODEL_ERROR'; }, /must be null/);
+  bad((c) => { c.risk.forecast_outlook = 'CROSSING_EXPECTED'; }, /expected_threshold_crossing_utc/);
+  bad((c) => { c.risk.current_risk_state = 'DANGER'; }, /current_risk_state/);
+  const noWifi = make(); noWifi.health.wifi_connected = false;
+  assert.equal(check(noWifi).rows.health.wifi_signal_rssi_dbm, null); // RSSI dropped when Wi-Fi is off (database rule)
+});

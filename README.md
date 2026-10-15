@@ -249,6 +249,17 @@ Run `supabase/migrations/006_alert_delivery.sql` once in Supabase. Then:
 
 Tap your name in the menu: edit full name, position and organization (email and role cannot be changed there), change your password (the current one is checked first; other devices are signed out, this one stays signed in), and set this device's language, theme and app install. The bell keeps only notifications and alert sound.
 
+## 19. Raspberry Pi (real data)
+
+The Pi program is in `edge-pi/` (Python). It replaces the group's `aquacast_logger.py`: it reads the sensors with the same driver (`aquacast_hardware_pd1.py`, copied into `edge-pi/hardware/`) and the same rules, and also uploads. Full setup steps: **`edge-pi/README.md`**.
+
+- **Edge API** `/api/edge/v1/*` (`src/routes/edge.js`): `hello`, `models`, `cycles`, `control`. The Pi signs in with `EDGE_API_KEY` (Vercel env var, at least 32 random characters); it never gets the Supabase keys. Change the key to lock out a lost Pi.
+- **Store-and-forward:** every 10-minute cycle is saved on the Pi's SD card (SQLite) first and uploaded oldest-first when online. UUIDs are made on the Pi, so a repeated upload is answered `DUPLICATE`, never stored twice. Each cycle is checked against the database rules first (`src/services/edge-validate.js`) and a bad one is answered `REJECTED` with the reason.
+- **Alerts:** a new risk level triggers the normal phone-alert check (the webhook does too; only one sends). Readings older than 60 minutes (uploaded after an outage) never alert.
+- **Aerator:** the Pi polls `control` every 15 s, applies dashboard ON/OFF requests in MANUAL mode, switches by itself in AUTOMATIC mode (also offline; reported later), and acknowledges mode changes.
+- **Simulator:** while `MOCK_EDGE_ENABLED=true` the edge API refuses data (`SIMULATOR_ENABLED`) so real and simulated readings never mix. Cut-over: `edge-pi/README.md` step 5 and `supabase/cutover/clear_simulated_data.sql`.
+- **Diagnostics:** Settings → Phone Alert Diagnostics → *Raspberry Pi connection* (last check-in, readings waiting on the SD card, clock difference, last refused reading).
+
 ## Tests
 
 ```bash

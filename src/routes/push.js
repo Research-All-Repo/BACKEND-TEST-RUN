@@ -57,13 +57,14 @@ router.post('/test-me', async (req, res, next) => {
 router.get('/diagnostics', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const db = getAdminClient();
-    const [subs, beat, recent, coverage, alerts] = await Promise.all([
+    const [subs, beat, recent, coverage, alerts, edge] = await Promise.all([
       push.listSubscriptions().catch(() => []),
       db.from('dashboard_settings').select('value, updated_at').eq('setting_key', 'background_check').maybeSingle().then((r) => r.data, () => null),
       db.from('dashboard_audit_log').select('action, created_at, details').in('action', ['PUSH_RISK_SENT', 'PUSH_RISK_FAILED', 'ALERT_TEST_BROADCAST', 'PUSH_STALE_SENT', 'ALERT_ESCALATED'])
         .order('created_at', { ascending: false }).limit(8).then((r) => r.data || []),
       alertCoverage(db),
       recentAlerts(db),
+      edgeConnection(db),
     ]);
     res.json({ data: {
       vapid_configured: push.enabled() && !push.configError(),
@@ -76,9 +77,21 @@ router.get('/diagnostics', requireRole('ADMIN'), async (req, res, next) => {
       escalate_after_minutes: config.escalateAfterMinutes,
       coverage,
       alerts,
+      edge,
     } });
   } catch (err) { next(err); }
 });
+
+/** Raspberry Pi link: key set in Vercel, last contact (aerator heartbeat), last upload and SD-card backlog. */
+async function edgeConnection(db) {
+  const [st, set, obs] = await Promise.all([
+    db.from('dashboard_settings').select('value').eq('setting_key', 'edge_status').maybeSingle().then((r) => r.data?.value || null, () => null),
+    db.from('aerator_control_settings').select('output_reported_at_utc').eq('singleton_slot', 1).maybeSingle().then((r) => r.data, () => null),
+    db.from('raw_observations').select('timestamp_utc').order('timestamp_utc', { ascending: false }).limit(1).maybeSingle().then((r) => r.data, () => null),
+  ]);
+  return { key_configured: !!config.edge.apiKey && config.edge.apiKey.length >= 32, status: st,
+    last_contact_at: set?.output_reported_at_utc || null, latest_reading_utc: obs?.timestamp_utc || null };
+}
 
 /** Who can be reached: registered devices per active user and when a phone last confirmed an alert. */
 async function alertCoverage(db) {

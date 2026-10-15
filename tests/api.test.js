@@ -405,3 +405,21 @@ test('logout revokes the session', async () => {
   const t = await thief.get('/api/live');
   assert.equal(t.status, 401, 'revoked refresh token must not work');
 });
+
+test('edge API: only the edge key opens it, never a dashboard session', async () => {
+  const c = new Client();
+  for (const auth of [undefined, 'Bearer wrong-key']) {
+    const r = await c.call('GET', '/api/edge/v1/hello', undefined, auth ? { authorization: auth } : {});
+    assert.ok([401, 503].includes(r.status), `got ${r.status}`); // 503 when EDGE_API_KEY is not set on this server
+  }
+  const staff = new Client(); await staff.login(ADMIN.email, ADMIN.password);
+  assert.notEqual((await staff.get('/api/edge/v1/hello')).status, 200); // cookies do not count
+  const key = process.env.TEST_EDGE_API_KEY;
+  if (!key) return; // set TEST_EDGE_API_KEY (= the server's EDGE_API_KEY) to also run the happy path
+  const hello = await c.call('GET', '/api/edge/v1/hello', undefined, { authorization: `Bearer ${key}` });
+  assert.equal(hello.status, 200);
+  assert.ok(hello.json.data.server_time);
+  const bad = await c.call('POST', '/api/edge/v1/cycles', { cycles: [{ observation: { observation_id: 'x' } }] }, { authorization: `Bearer ${key}` });
+  if (hello.json.data.simulator_enabled) assert.equal(bad.json.error.code, 'SIMULATOR_ENABLED');
+  else { assert.equal(bad.status, 200); assert.equal(bad.json.data.results[0].status, 'REJECTED'); }
+});

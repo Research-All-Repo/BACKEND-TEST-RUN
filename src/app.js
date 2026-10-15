@@ -32,6 +32,8 @@ function createApp({ mockEdge = null } = {}) {
       },
     },
   }));
+  // Raspberry Pi edge API: own key (EDGE_API_KEY), no cookies, larger bodies for catch-up uploads
+  app.use('/api/edge', express.json({ limit: '2mb' }), require('./routes/edge'));
   app.use(express.json({ limit: '64kb' }));
   app.use(cookieParser());
 

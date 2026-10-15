@@ -5,3 +5,7 @@ node_modules/
 *.log
 .DS_Store
 .vercel
+__pycache__/
+*.pyc
+*.sqlite3*
+edge-pi/edge.env

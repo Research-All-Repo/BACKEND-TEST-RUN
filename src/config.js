@@ -69,6 +69,12 @@ const config = {
   // Calibration mode switches itself off after this many hours unless an Admin picks another duration
   calibrationDefaultHours: num('CALIBRATION_DEFAULT_HOURS', 2),
 
+  // Raspberry Pi edge API key (Authorization: Bearer ...). At least 32 random characters.
+  // Only opens /api/edge/*; the Pi never gets the Supabase keys. Change it to lock out a lost Pi.
+  edge: {
+    apiKey: String(process.env.EDGE_API_KEY || '').trim(),
+  },
+
   // Mock edge device (simulates the Raspberry Pi pushing data and acknowledging commands)
   mockEdge: {
     enabled: bool('MOCK_EDGE_ENABLED', false),

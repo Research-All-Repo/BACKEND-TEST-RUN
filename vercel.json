@@ -9,7 +9,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 30,
-      "excludeFiles": "{public,tests,scripts,supabase,docs}/**"
+      "excludeFiles": "{public,tests,scripts,supabase,docs,edge-pi}/**"
     }
   },
   "rewrites": [

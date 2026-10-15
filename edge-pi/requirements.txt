@@ -1,0 +1,11 @@
+# Python packages for the Raspberry Pi (installed into /opt/aquacast-edge/venv by install.sh).
+# The edge program itself only needs the standard library + gpiozero (installed with apt).
+# These are for the group's sensor driver (aquacast_hardware_pd1.py / aquacast_logger.py):
+minimalmodbus==2.1.1
+pyserial==3.5
+smbus2==0.5.0
+# If `sudo aquacast-edge check` says "the sensor driver needs the Python package 'X'",
+# add X here and run:  sudo bash install.sh
+# The trained forecast model's libraries go here too, e.g.:
+#   scikit-learn==1.5.2
+#   joblib==1.4.2

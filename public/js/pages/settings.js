@@ -233,6 +233,22 @@ export default async function settings(root, ctx) {
 
   const KIND = { RISK: 'Risk', STALE: 'No data', RECOVERY: 'Data back', ESCALATION: 'Escalation', TEST: 'Test' };
 
+  /** Raspberry Pi link: green when the Pi checked in within 2 minutes. */
+  function edgeRow(e, row) {
+    if (!e) return '';
+    if (!e.key_configured) return row(false, 'Raspberry Pi connection', 'EDGE_API_KEY is not set in Vercel (at least 32 characters). The Pi cannot send readings until it is.');
+    const minsAgo = (iso) => (iso ? Math.round((Date.now() - new Date(iso)) / 60000) : null);
+    const contact = minsAgo(e.last_contact_at);
+    const st = e.status || {};
+    const parts = [contact === null ? 'The Pi has not checked in yet.' : `Last check-in ${contact} min ago.`];
+    if (e.latest_reading_utc) parts.push(`Newest reading ${fmtDateTime(e.latest_reading_utc)}.`);
+    if (st.outbox_backlog > 0) parts.push(`${st.outbox_backlog} reading(s) still waiting on the Pi's SD card (uploading).`);
+    if (st.edge_version) parts.push(`Pi program ${st.edge_version}${st.hostname ? ` on ${st.hostname}` : ''}.`);
+    if (Number.isFinite(st.clock_skew_s) && Math.abs(st.clock_skew_s) > 60) parts.push(`Pi clock is ${Math.abs(st.clock_skew_s)} s ${st.clock_skew_s > 0 ? 'ahead' : 'behind'}: check its internet time / RTC.`);
+    if (st.last_rejected) parts.push(`Last refused reading: ${st.last_rejected}`);
+    return row(contact !== null && contact <= 2, 'Raspberry Pi connection', parts.join(' '));
+  }
+
   /** Every link of the phone-alert chain, green or red, so a broken one is obvious. */
   function diagnosticsHtml(g) {
     if (!g) return html`<section class="dashboard-panel settings2-storage-panel"><div class="settings2-section-header">${ic('activity', 18)}<div><span class="settings2-eyebrow">PHONE ALERTS</span><h3>Phone Alert Diagnostics</h3><p>Could not load diagnostics. Make sure the latest update is deployed.</p></div></div></section>`;
@@ -249,6 +265,7 @@ export default async function settings(root, ctx) {
         ${row(g.hook_secret_configured, 'Hook secret', g.hook_secret_configured ? 'PUSH_HOOK_SECRET is set.' : 'PUSH_HOOK_SECRET is missing in Vercel; the Supabase webhook and 5-minute job are refused.')}
         ${row(beatOk, 'Background check (Supabase, every 5 min)', mins === null ? 'Never received. Run 005_stale_data_check.sql with the same secret as PUSH_HOOK_SECRET; with the simulator on, nothing is generated while all apps are closed until this works.' : `Last run ${mins} min ago${g.background_check.simulator ? ` · simulator ${g.background_check.simulator}` : ''} · ${g.background_check.result}.${beatOk ? '' : ' Expected every 5 minutes: check the 005 job and its responses (403 = wrong secret).'}`)}
         ${row(null, 'Data source', g.simulator_enabled ? 'Simulator is ON: readings come from the background check every 5 minutes (and from open dashboards).' : 'Simulator is OFF: readings come from the Raspberry Pi; the Supabase webhook sends alerts the moment a reading is stored.')}
+        ${g.simulator_enabled ? '' : edgeRow(g.edge, row)}
         ${row(g.subscriptions.length > 0, 'Registered devices', g.subscriptions.length ? `${g.subscriptions.length} device(s) will receive alerts.` : 'No device has turned on alerts. On each phone: bell → Enable notifications.')}
         ${coverageRow(g, row)}
       </ul>

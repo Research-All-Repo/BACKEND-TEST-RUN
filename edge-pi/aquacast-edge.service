@@ -1,0 +1,25 @@
+[Unit]
+Description=AquaCast edge (sensors, forecasts, aerator relay, upload to the dashboard)
+Wants=network-online.target
+After=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=aquacast
+Group=aquacast
+WorkingDirectory=/opt/aquacast-edge
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/aquacast-edge/venv/bin/python -m aquacast_edge run
+Restart=always
+RestartSec=10
+# a stop lets the current reading finish and leaves the relay as it is
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/aquacast
+
+[Install]
+WantedBy=multi-user.target

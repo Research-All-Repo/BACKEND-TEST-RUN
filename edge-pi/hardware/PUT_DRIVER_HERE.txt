@@ -1,0 +1,8 @@
+Copy the group's sensor driver into this folder:
+
+    aquacast_hardware_pd1.py
+
+(the file aquacast_logger.py imports with "from aquacast_hardware_pd1 import Hardware"),
+plus any other .py file that driver imports from the same folder. Then run:
+
+    sudo bash install.sh
