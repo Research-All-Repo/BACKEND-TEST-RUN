@@ -1,0 +1,29 @@
+Held-out simulated ponds (12 ponds x 30 days, never used in training)
+  model                      horizon     MAE    RMSE   ±0.5  vs no-change  low DO caught  false alarms  n
+  XGBoost                        +30   0.090   0.155    99%          +55%    96% of 1768            3%  50413
+  XGBoost                        +60   0.122   0.208    98%          +67%    93% of 1777            4%  50344
+  XGBoost                        +90   0.158   0.259    97%          +71%    90% of 1769            5%  50279
+  XGBoost                       +120   0.193   0.309    94%          +73%    88% of 1771            6%  50210
+  old placeholder                +30   0.152   0.250    98%          +25%    95% of 1768            6%  50388
+  old placeholder                +60   0.253   0.386    90%          +32%    91% of 1777           12%  50318
+  old placeholder                +90   0.419   0.555    69%          +23%    84% of 1769           18%  50253
+  old placeholder               +120   0.550   0.715    55%          +22%    79% of 1771           24%  50185
+  no-change (persistence)        +30   0.202   0.278    95%           +0%    92% of 1768            8%  50413
+  no-change (persistence)        +60   0.372   0.472    76%           +0%    85% of 1777           15%  50344
+  no-change (persistence)        +90   0.542   0.671    56%           +0%    78% of 1769           22%  50279
+  no-change (persistence)       +120   0.707   0.869    40%           +0%    71% of 1771           29%  50210
+
+dashboard-sim-pond.csv: 60 days, a different pond model (not used in training)
+  model                      horizon     MAE    RMSE   ±0.5  vs no-change  low DO caught  false alarms  n
+  XGBoost                        +30   0.135   0.185    99%          +41%     97% of 610           23%  8601
+  XGBoost                        +60   0.245   0.319    91%          +45%     91% of 609           37%  8598
+  XGBoost                        +90   0.362   0.472    74%          +45%     85% of 607           49%  8595
+  XGBoost                       +120   0.470   0.612    62%          +45%     78% of 607           57%  8592
+  old placeholder                +30   0.137   0.178    99%          +40%     91% of 610           13%  8599
+  old placeholder                +60   0.267   0.333    89%          +40%     84% of 609           25%  8596
+  old placeholder                +90   0.490   0.580    54%          +25%     68% of 607           39%  8593
+  old placeholder               +120   0.650   0.762    39%          +25%     58% of 607           51%  8590
+  no-change (persistence)        +30   0.229   0.270    98%           +0%     83% of 610           17%  8601
+  no-change (persistence)        +60   0.445   0.515    59%           +0%     69% of 609           32%  8598
+  no-change (persistence)        +90   0.657   0.752    36%           +0%     54% of 607           46%  8595
+  no-change (persistence)       +120   0.861   0.978    25%           +0%     41% of 607           60%  8592

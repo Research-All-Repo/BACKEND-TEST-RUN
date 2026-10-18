@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from aquacast_edge import config, risk, sensors  # noqa: E402
+from aquacast_edge import config, features, forecast, risk, sensors  # noqa: E402
 from aquacast_edge.store import Store  # noqa: E402
 
 
@@ -164,6 +164,90 @@ class Settings(unittest.TestCase):
             self.assertEqual(cfg.cycle_minutes, 10)
         finally:
             os.unlink(f.name)
+
+
+def _history(values, start="2026-10-20T10:00:00Z", temp=29.0):
+    from datetime import timedelta
+    t0 = features.parse_utc(start)
+    return [{"timestamp_utc": (t0 + timedelta(minutes=10 * i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "do_mg_l": v, "water_temp_c": temp} for i, v in enumerate(values)]
+
+
+class ForecastModel(unittest.TestCase):
+    def cfg(self, data_dir, model_file=""):
+        return config.Config(server_url="http://localhost", edge_key="k" * 40, data_dir=Path(data_dir), model_file=model_file)
+
+    def test_features_handle_gaps(self):
+        x = features.from_history(_history([6.0, None, 5.8, 5.7, None, 5.5, 5.4]))
+        self.assertEqual(len(x), len(features.FEATURES))
+        self.assertAlmostEqual(x[0], 5.4)
+        self.assertAlmostEqual(x[1], 5.4 - 5.5)          # d_10
+        self.assertTrue(x[2] != x[2])                     # d_20: missing reading -> NaN
+        self.assertAlmostEqual(x[4], 5.4 - 6.0)           # d_60
+        # 11:00 UTC = 19:00 Manila
+        self.assertAlmostEqual(x[14], __import__("math").sin(2 * __import__("math").pi * 19 / 24), places=6)
+
+    def test_shipped_xgboost_model_is_used(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cfg(d)
+            forecast.load_model(cfg)
+            self.assertEqual(sorted(forecast.MODELS), [30, 60, 90, 120])
+            falling = _history([7.0 - 0.15 * i for i in range(20)], start="2026-10-20T12:00:00Z")  # evening decline
+            p30, p120 = forecast.predict(falling, 30), forecast.predict(falling, 120)
+            now = falling[-1]["do_mg_l"]
+            self.assertTrue(0 < p120 < p30 < now, (now, p30, p120))
+            rec = forecast.model_records(cfg)[60]
+            self.assertEqual(rec["algorithm"], "XGBoost regression")
+            self.assertEqual(rec["model_file_name"], "aquacast-do-xgb.json")
+            self.assertLessEqual(rec["training_start_utc"], rec["training_end_utc"])
+            with self.assertRaises(forecast.InsufficientHistory):
+                forecast.predict(_history([6.0, 6.1]), 30)
+
+    def test_broken_model_file_falls_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d) / "bad.json"
+            bad.write_text("{not json")
+            forecast.load_model(self.cfg(d, model_file=str(bad)))   # skipped, the shipped model is used
+            self.assertEqual(len(forecast.MODELS), 4)
+            self.assertNotIn("bad.json", forecast.model_records(self.cfg(d, model_file=str(bad)))[30]["model_file_name"])
+            import json
+            wrong = Path(d) / "wrong.json"
+            wrong.write_text(json.dumps({"format": forecast.BUNDLE_FORMAT, "features": ["other"], "horizons": {}}))
+            forecast.load_model(self.cfg(d, model_file=str(wrong)))
+            self.assertEqual(len(forecast.MODELS), 4)
+
+    def test_placeholder_when_no_model_at_all(self):
+        with tempfile.TemporaryDirectory() as d:
+            forecast.MODELS.clear()
+            forecast.INFO.clear()
+            self.assertAlmostEqual(forecast.predict(_history([6.0, 5.9, 5.8, 5.7]), 30), 5.55)
+            self.assertEqual(forecast.model_records(self.cfg(d))[30]["model_file_name"], "placeholder (built-in)")
+
+    def test_pure_python_matches_xgboost(self):
+        try:
+            import numpy as np
+            import xgboost as xgb
+        except ImportError:
+            self.skipTest("xgboost not installed (only needed for training)")
+        import json
+        from aquacast_edge.xgbtree import XGBRegressor
+        bundle = json.loads((Path(__file__).resolve().parent.parent / "models" / "aquacast-do-xgb.json").read_text())
+        rng = np.random.default_rng(3)
+        X = []
+        for _ in range(300):
+            vals = list(np.round(6 + np.cumsum(rng.normal(0, 0.15, 37)), 2))
+            vals = [None if rng.random() < 0.1 else float(v) for v in vals]
+            vals[-1] = vals[-1] or 5.0
+            X.append(features.from_history(_history(vals, start=f"2026-10-20T{rng.integers(0, 24):02d}:00:00Z")))
+        X = np.array(X, dtype=np.float32)
+        for h in (30, 120):
+            j = bundle["horizons"][str(h)]
+            b = xgb.Booster()
+            b.load_model(bytearray(json.dumps(j).encode()))
+            ref = b.predict(xgb.DMatrix(X, missing=np.nan))
+            m = XGBRegressor(j)
+            mine = np.array([m.predict([float(v) for v in row]) for row in X])
+            self.assertLess(float(np.abs(ref - mine).max()), 1e-4)
 
 
 if __name__ == "__main__":

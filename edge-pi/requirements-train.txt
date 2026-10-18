@@ -1,0 +1,4 @@
+# Only for retraining the forecast on the Pi:  sudo aquacast-edge train
+# (installed by install.sh into /opt/aquacast-edge/venv; the forecast itself runs without these)
+xgboost==2.1.4
+numpy>=1.24

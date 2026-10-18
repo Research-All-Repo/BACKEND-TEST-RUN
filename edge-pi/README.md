@@ -5,7 +5,7 @@ it reads the sensors with the group's own driver (`aquacast_hardware_pd1.py`) an
 as the logger, and it also sends the data to the dashboard. Every 10 minutes it:
 
 1. reads the 5 sensors (SHT20, BMP280, light, pH, DO) exactly like `aquacast_logger.py`
-2. computes the DO forecasts for +30/60/90/120 min (`aquacast_edge/forecast.py`, placeholder until the trained model is added)
+2. computes the DO forecasts for +30/60/90/120 min with the XGBoost model (one model per horizon, Part E)
 3. decides the risk level (RISK-RULE-1.0)
 4. saves everything on the SD card **first** (`/var/lib/aquacast`, SQLite)
 5. uploads it to the dashboard. Without internet the readings wait on the SD card and are sent
@@ -182,6 +182,66 @@ update public.study_metadata set deployment_start_utc = (select min(timestamp_ut
 | Power cut | Unplug the Pi, plug back in | the program starts by itself; the relay goes back to its last state; the time is right (RTC) |
 | Phone alert | When DO is genuinely low, or the Phone test in the bell menu | phones receive it with AquaCast closed |
 
+## Part E: the forecast model (XGBoost) and retraining it
+
+The Pi forecasts with **XGBoost regression, one model per horizon** (+30, +60, +90, +120 min), as in
+the database design. All four are in one file, `models/aquacast-do-xgb.json`. The Pi runs it in plain
+Python (`aquacast_edge/xgbtree.py`), so forecasting needs no extra packages and takes milliseconds.
+
+**What the model looks at** (`aquacast_edge/features.py`, the same code for training and on the Pi):
+DO now; how DO changed over the last 10, 20, 30, 60, 120, 180 and 360 minutes; the trend and whether it
+is speeding up; the 3-hour average and 6-hour high/low; how jumpy the readings are; the time of day;
+water temperature and its change; DO as % of saturation; and how many readings are missing. It predicts
+the **change** in DO, so it carries over to ponds whose normal DO level differs.
+
+### E1. The initial model (already included)
+
+It was trained on 96 simulated tilapia ponds x 30 days: a dissolved-oxygen balance (algae
+photosynthesis vs. respiration, wind re-aeration, aerators, fish feeding, sunny/cloudy/rainy days,
+algae blooms, night-time turnover drops) with a realistic sensor (noise, drift, spikes, gaps).
+Accuracy on ponds it never saw (`models/aquacast-do-xgb-report.txt`):
+
+| Horizon | Typical error (MAE) | Within ±0.5 mg/L | Better than "DO stays the same" by | Old placeholder MAE |
+|---|---|---|---|---|
+| +30 min | 0.09 mg/L | 99% | 55% | 0.15 |
+| +60 min | 0.12 mg/L | 98% | 67% | 0.25 |
+| +90 min | 0.16 mg/L | 97% | 71% | 0.42 |
+| +120 min | 0.19 mg/L | 94% | 73% | 0.55 |
+
+On the dashboard's simulator pond (a different DO model, a fair "new pond" test) it was less exact:
+0.14 / 0.25 / 0.36 / 0.47 mg/L. **A real pond will differ again: these are starting numbers, not a
+promise.** The model becomes accurate for *your* pond by retraining on its own readings (E2).
+
+### E2. Retrain on your pond (after at least 2 days of readings; weekly is good)
+
+Only use readings taken with the probe **in the pond** (not setup or distilled-water tests):
+
+```bash
+sudo aquacast-edge train --since "2026-10-20 08:00"            # pond-local time; shows the report, changes nothing
+sudo aquacast-edge train --since "2026-10-20 08:00" --install  # and switch to the new model if it is better
+```
+
+How it decides: the newest 25% of your readings are kept aside as a test. The installed model, an
+updated copy of it and (after 14 days of data, or with `--from-scratch`) a fresh model are compared on
+that test, horizon by horizon. A new model is only used where it is **more accurate on average AND not
+worse at warning about DO dropping to 3.0 mg/L or below** (a missed drop counts as much as 3 false
+alarms). Otherwise the current model stays. After `--install` the service restarts and the dashboard
+shows the new model in Model Evaluation; older forecasts keep pointing to the model that made them.
+
+```bash
+cat /var/lib/aquacast/models/last-training-report.txt   # the last report
+sudo aquacast-edge train --rollback                     # go back to the previous model
+sudo aquacast-edge check                                # shows which model is in use
+```
+
+Readings exported from the dashboard (Export -> Sensor readings) can be added with `--csv FILE`.
+Readings from the old logger: import them first (`sudo aquacast-edge import-logger ...`).
+
+### E3. Rebuild the initial model (developers, optional)
+
+On any computer with Python 3.9+: `pip install xgboost==2.1.4 numpy`, then in `edge-pi/`:
+`python -m aquacast_edge train --env /dev/null --synthetic-only --ponds 120 --days 30 --out models`
+
 ---
 
 ## Everyday commands (on the Pi)
@@ -194,6 +254,7 @@ sudo systemctl restart aquacast-edge    # after changing /etc/aquacast/edge.env
 cd ~/edge-pi && sudo bash install.sh    # after changing the code (keeps settings and data)
 sudo aquacast-edge retry-rejected       # send refused readings again after fixing the cause
 sudo systemctl stop aquacast-edge && sudo aquacast-edge relay-test --yes && sudo systemctl start aquacast-edge
+sudo aquacast-edge train --since "YYYY-MM-DD HH:MM" --install   # weekly: retrain the forecast (Part E)
 ```
 
 `check` skips the sensor part while the service is running, because only one program may use the sensors.
@@ -253,7 +314,10 @@ accepts voltages ≥ 0. The pH status still follows the logger's rule (OUT_OF_RA
 |---|---|
 | `hardware/aquacast_hardware_pd1.py` | **the group's sensor driver** (you copy it here, B2) |
 | `aquacast_edge/sensors.py` | the logger's reading rules, connected to the driver |
-| `aquacast_edge/forecast.py` | **the trained model goes here** (`load_model`, `predict`) |
+| `models/aquacast-do-xgb.json` | the XGBoost forecast model (4 horizons) + `aquacast-do-xgb-report.txt` |
+| `aquacast_edge/forecast.py`, `xgbtree.py`, `features.py` | loads and runs the model; the model inputs |
+| `aquacast_edge/train.py`, `synthetic.py` | retraining (`aquacast-edge train`); the simulated ponds |
+| `requirements-train.txt` | xgboost + numpy, only for retraining |
 | `aquacast_edge/risk.py` | risk rule RISK-RULE-1.0 (same as the dashboard) |
 | `aquacast_edge/runner.py` | the reading / upload / aerator loops |
 | `aquacast_edge/store.py` | SD-card storage and outbox |

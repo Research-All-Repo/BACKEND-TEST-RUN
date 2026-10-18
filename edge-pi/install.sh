@@ -41,6 +41,14 @@ if grep -qvE '^\s*(#|$)' requirements.txt; then
   /opt/aquacast-edge/venv/bin/pip install -q -r requirements.txt
 fi
 
+# training tools for `sudo aquacast-edge train` (forecasting itself needs none of them)
+if [ -f requirements-train.txt ]; then
+  cp requirements-train.txt /opt/aquacast-edge/
+  echo "   training tools (xgboost, numpy) - can take a few minutes the first time ..."
+  /opt/aquacast-edge/venv/bin/pip install -q -r requirements-train.txt \
+    || echo "   NOTE: could not install the training tools now. Forecasting still works; run install.sh again later to retrain."
+fi
+
 chmod -R a+rX /opt/aquacast-edge  # again, for packages pip just installed
 
 echo "5/6 settings and data folder"
@@ -52,11 +60,21 @@ fi
 chmod 640 /etc/aquacast/edge.env; chown root:aquacast /etc/aquacast/edge.env
 install -d -m 750 -o aquacast -g aquacast /var/lib/aquacast
 
-# short command for the team:  sudo aquacast-edge check | status | retry-rejected | relay-test --yes
+# short command for the team:  sudo aquacast-edge check | status | retry-rejected | relay-test --yes | train
 cat > /usr/local/bin/aquacast-edge <<'WRAP'
 #!/bin/sh
 cd /opt/aquacast-edge || exit 1
 if [ "$(id -u)" -ne 0 ]; then echo "use: sudo aquacast-edge $*"; exit 1; fi
+if [ "$1" = "train" ]; then
+  # low priority, so the 10-minute readings keep their timing while it trains
+  nice -n 10 runuser -u aquacast -- /opt/aquacast-edge/venv/bin/python -m aquacast_edge "$@"
+  rc=$?
+  if [ "$rc" -eq 10 ]; then
+    systemctl restart aquacast-edge && echo "Service restarted with the new model. Check: journalctl -u aquacast-edge -n 20"
+    exit 0
+  fi
+  exit "$rc"
+fi
 exec runuser -u aquacast -- /opt/aquacast-edge/venv/bin/python -m aquacast_edge "$@"
 WRAP
 chmod 755 /usr/local/bin/aquacast-edge

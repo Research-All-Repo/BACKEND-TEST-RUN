@@ -5,6 +5,7 @@
   python3 -m aquacast_edge status           what is waiting on the SD card, mode, relay, refused items
   python3 -m aquacast_edge retry-rejected   queue refused readings again (after fixing the cause)
   python3 -m aquacast_edge relay-test --yes switch the aerator ON for 5 seconds, then back
+  python3 -m aquacast_edge train [--install]  retrain the DO forecast on this pond's readings (see train.py)
 """
 from __future__ import annotations
 
@@ -20,10 +21,12 @@ from . import VERSION, config, sensors
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="aquacast_edge", description=f"AquaCast edge program {VERSION}")
-    ap.add_argument("command", nargs="?", default="run", choices=["run", "check", "status", "retry-rejected", "relay-test", "import-logger"])
+    ap.add_argument("command", nargs="?", default="run", choices=["run", "check", "status", "retry-rejected", "relay-test", "import-logger", "train"])
     ap.add_argument("path", nargs="?", help="import-logger: the old logger database (aquacast.sqlite)")
     ap.add_argument("--env", help="settings file (default /etc/aquacast/edge.env)")
     ap.add_argument("--yes", action="store_true", help="confirm relay-test")
+    from . import train as _train
+    _train.add_arguments(ap)
     args = ap.parse_args(argv)
     cfg = config.load(args.env)
     logging.basicConfig(level=getattr(logging, cfg.log_level, logging.INFO), stream=sys.stdout,
@@ -31,6 +34,8 @@ def main(argv=None):
 
     if args.command == "check":
         return check(cfg)
+    if args.command == "train":
+        return _train.main(args, cfg)
     from .runner import Edge
     if args.command == "status":
         return status(cfg)
@@ -98,6 +103,17 @@ def check(cfg):
     except Offline as e:
         ok = False
         print(f"  [!] server not reachable: {e}")
+    from . import forecast
+    forecast.load_model(cfg)
+    if forecast.INFO:
+        path, meta = forecast.INFO[min(forecast.INFO)]
+        print(f"  [ok] forecast model: {meta.get('name')} {meta.get('version')} ({path})")
+        missing = [h for h in (30, 60, 90, 120) if h not in forecast.MODELS]
+        if missing:
+            print(f"  [!] no model for +{', +'.join(map(str, missing))} min: placeholder forecast used there")
+    else:
+        ok = False
+        print("  [!] no forecast model file found: the simple placeholder forecast is used (copy models/ and run install.sh)")
     print(f"  [i] sensor mode: {cfg.sensor_mode}" + (f" (driver port {cfg.serial_port}, light {cfg.light_address}, DO {cfg.do_address}, {cfg.baud} baud, pH {'on' if cfg.ph_enabled else 'off'})" if cfg.sensor_mode == "real" else ""))
     if service_running(cfg):
         print("  [i] the service is running and using the sensors: sensor test skipped.")
