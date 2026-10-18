@@ -536,6 +536,17 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
 .aq-hero-risk { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px 6px 10px; border-radius: 999px; background: var(--risk); color: #fff;
   font-weight: 800; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
 .aq-hero-watch .aq-hero-risk { color: #422006; }
+/* the status pill explains itself: hover / keyboard focus on a computer, tap on a phone */
+.aq-risk-wrap { position: relative; display: inline-flex; }
+button.aq-hero-risk { border: 0; font-family: inherit; line-height: inherit; cursor: help; }
+button.aq-hero-risk:focus-visible { outline: 3px solid var(--risk-ink); outline-offset: 2px; }
+.aq-risk-tip { position: absolute; top: calc(100% + 8px); left: 0; z-index: 60; width: max-content; max-width: min(360px, calc(100vw - 48px));
+  display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 12px; background: #0f172a; color: #e2e8f0;
+  font-size: 13px; font-weight: 500; line-height: 1.45; letter-spacing: 0; text-transform: none; box-shadow: 0 12px 28px #0f172a40; border: 1px solid #ffffff1f;
+  opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .12s ease, transform .12s ease, visibility .12s; pointer-events: none; }
+.aq-risk-tip::before { content: ""; position: absolute; top: -6px; left: 22px; width: 12px; height: 12px; background: #0f172a; transform: rotate(45deg); }
+.aq-risk-tip strong { color: #fff; font-size: 13px; font-weight: 800; }
+.aq-risk-wrap:hover .aq-risk-tip, .aq-risk-wrap:focus-within .aq-risk-tip, .aq-risk-wrap.open .aq-risk-tip { opacity: 1; visibility: visible; transform: none; }
 .aq-hero-fresh { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; color: #475569; }
 .aq-hero-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 3px #10b98126; }
 .fresh-sync_delayed .aq-hero-dot { background: #f59e0b; box-shadow: 0 0 0 3px #f59e0b26; }

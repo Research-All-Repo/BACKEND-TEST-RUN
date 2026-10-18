@@ -106,6 +106,60 @@ export default async function live(root, ctx) {
     return { d, series24: series.data, acts: acts.data, rmse };
   }
 
+  /** Why the pond status is what it is, in plain words (shown when hovering / tapping the status pill). */
+  function riskWhy(d, series24) {
+    const rule = d.rule_reference || {};
+    const c = fmtNum(rule.critical_do_mg_l ?? 3, 1);
+    const w = fmtNum(rule.watch_boundary_do_mg_l ?? 5, 1);
+    const o = d.observation;
+    const state = d.risk?.current_risk_state || 'DATA_UNAVAILABLE';
+    const doR = o?.readings?.do_mg_l;
+    const doOk = !!doR?.usable;
+    const doText = doOk ? `${fmtNum(doR.value)} mg/L` : '';
+    const at = o ? fmtTime(o.timestamp_utc) : '';
+    const fc = d.forecasts || [];
+    const valid = fc.filter((f) => f.forecast_status === 'VALID' && f.predicted_do_mg_l !== null);
+    const lines = [];
+    const fresh = d.freshness?.state;
+
+    if (state !== 'DATA_UNAVAILABLE') {
+      const low = valid.reduce((a, f) => (!a || f.predicted_do_mg_l < a.predicted_do_mg_l ? f : a), null);
+      const lowText = low ? t('whyLowest', { f: fmtNum(low.predicted_do_mg_l), ft: fmtTime(low.target_timestamp_utc) }) : '';
+      if (state === 'NORMAL') lines.push(t('whyNormal', { do: doText, w }));
+      else if (state === 'WATCH') lines.push(t('whyWatch', { do: doText, w, low: lowText }));
+      else if (state === 'CRITICAL') lines.push(t('whyCritical', { do: doText, c }));
+      else if (state === 'WARNING') {
+        const r = riskReason(d);
+        lines.push(r.basis === 'FORECAST' ? t('heroBasisForecast', { f: r.f, ft: r.ft, h: r.h }) : t('whyWarnMeasured', { do: doText, w, c }));
+      }
+      if (fresh === 'OFFLINE' || fresh === 'SYNC_DELAYED') lines.push(t('whyStale', { t: at }));
+      return { title: t('whyTitle'), lines };
+    }
+
+    // DATA UNAVAILABLE: name every cause we can see
+    if (!o) return { title: t('whyTitle'), lines: [t('whyNoReading')] };
+    if (fresh === 'OFFLINE' || fresh === 'SYNC_DELAYED') lines.push(t('whyStale', { t: at }));
+    if (!doOk) lines.push(t('whyDoBad', { t: at, q: (doR?.quality_status || 'MISSING').replace(/_/g, ' ').toLowerCase() }));
+    else if (!d.risk?.available) lines.push(t('whyNoRisk', { t: at }));
+    else if (valid.length < 4) {
+      const byStatus = {};
+      for (const f of fc) if (f.forecast_status !== 'VALID') (byStatus[f.forecast_status] ||= []).push(`+${f.horizon_minutes}`);
+      if (byStatus.INSUFFICIENT_HISTORY) {
+        // the Pi forecasts once it has 3 valid DO readings in the last 6 hours (this one included)
+        const since = new Date(o.timestamp_utc).getTime() - 6 * 3600e3;
+        const have = (series24 || []).filter((r) => r.do_mg_l_status === 'VALID' && new Date(r.timestamp_utc).getTime() >= since).length || 1;
+        const need = Math.max(1, 3 - have);
+        lines.push(t('whyHistory', { have, next: need === 1 ? t('whyNext1') : t('whyNextN', { n: need }), t: fmtTime(new Date(new Date(o.timestamp_utc).getTime() + need * 600e3).toISOString()) }));
+      }
+      if (byStatus.MODEL_ERROR) lines.push(t('whyModelError', { h: byStatus.MODEL_ERROR.join(', ') }));
+      if (byStatus.INPUT_UNAVAILABLE) lines.push(t('whyInput', { h: byStatus.INPUT_UNAVAILABLE.join(', ') }));
+      if (byStatus.NOT_GENERATED || fc.length < 4) lines.push(t('whyNotSent'));
+      lines.push(t('whyRule', { do: doText, w }));
+    }
+    if (!lines.length) lines.push(t('whyUnknown'));
+    return { title: t('whyTitleUnavailable'), lines };
+  }
+
   async function render() {
     let data;
     try { data = await load(); } catch (err) {
@@ -130,6 +184,7 @@ export default async function live(root, ctx) {
     const trendCls = trend?.slope_mg_l_per_hr <= -0.3 ? 'critical-text' : trend?.slope_mg_l_per_hr < -0.05 ? 'warning-text' : '';
 
     const calib = d.calibration?.enabled;
+    const why = riskWhy(d, series24);
     function heroHtml() {
       const RISK_ICON = { normal: 'circle-check', watch: 'eye', warning: 'triangle-alert', critical: 'octagon-alert', unknown: 'circle-help' };
       const slope = trend?.slope_mg_l_per_hr;
@@ -141,7 +196,10 @@ export default async function live(root, ctx) {
       return html`<section class="aq-hero aq-hero-${rk}" aria-label="Pond status now">
         <div class="aq-hero-main">
           <div class="aq-hero-top">
-            <span class="aq-hero-risk">${ic(RISK_ICON[rk] || 'circle-help', 16)}${t(`risk.${risk}`) || riskLabel(risk)}</span>
+            <span class="aq-risk-wrap">
+              <button type="button" class="aq-hero-risk" aria-describedby="aq-risk-why" aria-expanded="false" data-risk-why>${ic(RISK_ICON[rk] || 'circle-help', 16)}${t(`risk.${risk}`) || riskLabel(risk)}</button>
+              <span class="aq-risk-tip" id="aq-risk-why" role="tooltip"><strong>${why.title}</strong>${why.lines.map((l) => raw(html`<span>${l}</span>`))}</span>
+            </span>
             <span class="aq-hero-fresh fresh-${fresh.toLowerCase()}"><span class="aq-hero-dot"></span>${t(`fresh.${fresh}`)}${o ? ` · ${t('updated', { ago: ago(o.timestamp_utc).toLowerCase() })}` : ''}</span>
             ${calib ? raw(`<span class="aq-hero-calib">${icon('wrench', 13)}${esc(t('uncalibrated'))}</span>`) : ''}
             ${d.data_quality?.flags?.length ? raw(`<span class="aq-hero-calib">${icon('triangle-alert', 13)}${esc(t('checkProbe'))}</span>`) : ''}
@@ -258,6 +316,16 @@ export default async function live(root, ctx) {
     </div>`;
 
     renderAeration(root.querySelector('#aeration-panel'), d.aerator);
+    const whyBtn = root.querySelector('[data-risk-why]');
+    whyBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wrap = whyBtn.parentElement;
+      const open = !wrap.classList.contains('open');
+      wrap.classList.toggle('open', open);
+      whyBtn.setAttribute('aria-expanded', String(open));
+    });
+    whyBtn?.addEventListener('blur', () => { whyBtn.parentElement.classList.remove('open'); whyBtn.setAttribute('aria-expanded', 'false'); });
+    whyBtn?.addEventListener('keydown', (e) => { if (e.key === 'Escape') { whyBtn.parentElement.classList.remove('open'); whyBtn.blur(); } });
     root.querySelectorAll('[data-hero=aeration]').forEach((b) => b.addEventListener('click', () => root.querySelector('#aeration-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' })));
     root.querySelector('[data-hero=log]')?.addEventListener('click', () => openActivityModal({ variant: 'compact', onSaved: render }));
     setupCollapsibles(root);

@@ -279,7 +279,6 @@ function referenceRows(deploymentStart) {
     ['LIGHT', 'DFRobot', 'SEN0644 RS485 Ambient Light Sensor', 'MOCK-SEN0644-0001', 'ACTIVE', null],
     ['AIR_TEMPERATURE_HUMIDITY', 'DFRobot', 'SEN0227 SHT20 Temperature & Humidity', 'MOCK-SEN0227-0001', 'ACTIVE', null],
     ['BAROMETRIC_PRESSURE', 'Bosch', 'BMP280 Barometric Pressure Sensor', 'MOCK-BMP280-0001', 'ACTIVE', null],
-    ['PH', 'DFRobot', 'SEN0169-V2 Industrial Analog pH Sensor', 'MOCK-SEN0169-0002', 'SPARE', 'Spare probe kept for replacement.'],
   ];
   const sensors = sensorSpecs.map(([type, mfr, model, serial, status, notes]) => ({
     sensor_id: uuidFromName(`sensor:${serial}`), sensor_type: type, manufacturer: mfr, model, serial_number: serial,
