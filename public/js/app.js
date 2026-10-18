@@ -4,7 +4,7 @@
 import { get, post, patch, onAuthProblem } from './api.js';
 import { html, raw, ic, esc, icon, toast, openModal, formData, setTimezone, initials, roleLabel, riskLabel, fmtNum, fmtTime, ago, busy, loadingBox, errorBox } from './ui.js';
 import { t, lang } from './i18n.js';
-import { checkRisk, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush, turnOnAlerts, isStandaloneApp, currentPushState, deviceSettingsHtml, wireDeviceSettings } from './alerts.js';
+import { checkRisk, riskReason, checkTestAlert, clearIndicators, openAlertSettings, registerServiceWorker, stopCriticalAlarm, syncPush, unsubscribePush, turnOnAlerts, isStandaloneApp, currentPushState, deviceSettingsHtml, wireDeviceSettings } from './alerts.js';
 
 const LOGO = '/img/aquacast-logo.webp';
 // Installed home-screen app or a phone/tablet: stay signed in by default (persistent cookies,
@@ -419,12 +419,14 @@ function renderAdvisory() {
   const risk = state.live?.risk?.current_risk_state;
   if (!['WARNING', 'CRITICAL'].includes(risk) || state.page === 'live') { el.innerHTML = ''; return; }
   const crit = risk === 'CRITICAL';
+  const why = riskReason(state.live);
+  const fc = !crit && why.basis === 'FORECAST';
   el.innerHTML = html`<aside class="dashboard-aeration-advisory ${crit ? 'critical' : 'warning'}">
-    <div class="dashboard-aeration-advisory-icon">${ic('triangle-alert', 20)}</div>
-    <div class="dashboard-aeration-advisory-copy"><span class="dashboard-aeration-advisory-kicker">${risk} • Operator attention</span>
-      <strong>${crit ? 'Critical low dissolved oxygen condition.' : 'Dissolved oxygen deterioration detected.'}</strong>
-      <p>Review pond conditions and consider manual aeration if appropriate.</p></div>
-    <button type="button" class="dashboard-aeration-advisory-action">${ic('fan', 16)}Open Aeration Control</button>
+    <div class="dashboard-aeration-advisory-icon">${ic(fc ? 'trending-down' : 'triangle-alert', 20)}</div>
+    <div class="dashboard-aeration-advisory-copy"><span class="dashboard-aeration-advisory-kicker">${fc ? t('advKickerForecast') : t('advKicker', { risk })}</span>
+      <strong>${crit ? t('advCrit') : fc ? t('advWarnForecast', { f: why.f, ft: why.ft }) : t('advWarnMeasured')}</strong>
+      <p>${fc ? t('advTextForecast') : t('advText')}</p></div>
+    <button type="button" class="dashboard-aeration-advisory-action">${ic('fan', 16)}${t('advButton')}</button>
   </aside>`;
   el.querySelector('button').addEventListener('click', () => navigate('live', { focus: 'aeration' }));
 }

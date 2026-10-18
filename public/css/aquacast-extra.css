@@ -884,3 +884,10 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
   .aq-hero-metric { padding: 12px 13px; }
   .aq-hero-metric strong { font-size: 18px; }
 }
+
+/* ---------- Warning basis (measured DO vs forecast) ---------- */
+.aq-hero-basis{display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;padding:9px 12px;border-radius:12px;font-size:.88rem;line-height:1.45;
+  background:#f5f3ff;color:#4c1d95;border:1px solid #ddd6fe}
+.aq-hero-basis svg{flex:0 0 auto;margin-top:2px}
+.aq-hero-basis.measured{background:#fff7ed;color:#9a3412;border-color:#fed7aa}
+.aq-risk-alert.forecast .aq-risk-alert-icon{color:#6d28d9}

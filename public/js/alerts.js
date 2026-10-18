@@ -114,19 +114,62 @@ function setIndicators(level) {
 }
 export function clearIndicators() { setIndicators(0); document.querySelector('.aq-risk-alert')?.remove(); }
 
+// ---------------- why is it a Warning? measured DO vs forecast ----------------
+/**
+ * A Warning comes either from the measured DO (below the normal boundary) or, while the measured DO is
+ * still normal, from a forecast that reaches the critical level within 2 hours (RISK-RULE-1.0).
+ * Same logic as src/services/risk-message.js (phone notifications); keep the two in step.
+ */
+export function riskReason(live) {
+  const rr = live?.rule_reference || {};
+  const c = rr.critical_do_mg_l ?? 3.0;
+  const w = rr.watch_boundary_do_mg_l ?? 5.0;
+  const doR = live?.observation?.readings?.do_mg_l;
+  const doNow = doR?.usable ? Number(doR.value) : null;
+  const fc = (live?.forecasts || []).filter((f) => f.forecast_status === 'VALID' && Number.isFinite(Number(f.predicted_do_mg_l)))
+    .sort((a, b) => a.horizon_minutes - b.horizon_minutes);
+  const first = fc.find((f) => Number(f.predicted_do_mg_l) <= c) || null;
+  const lowest = fc.reduce((a, b) => (!a || Number(b.predicted_do_mg_l) < Number(a.predicted_do_mg_l) ? b : a), null);
+  const state = live?.risk?.current_risk_state;
+  const basis = state === 'WARNING' && doNow !== null && doNow >= w && (first || lowest) ? 'FORECAST' : 'MEASURED';
+  const f = basis === 'FORECAST' ? (first || lowest) : (first || (lowest && doNow !== null && Number(lowest.predicted_do_mg_l) < doNow ? lowest : null));
+  const ft = f ? (f.target_timestamp_utc ? fmtTime(f.target_timestamp_utc) : `+${f.horizon_minutes} min`) : '';
+  return {
+    basis, c: c.toFixed(1), w: w.toFixed(1), doText: doNow === null ? 'unavailable' : `${fmtNum(doNow)} mg/L`,
+    f: f ? fmtNum(Number(f.predicted_do_mg_l)) : null, ft, h: f?.horizon_minutes ?? null, fCritical: !!(f && Number(f.predicted_do_mg_l) <= c),
+  };
+}
+
+/** Title and body for a system notification (and the critical alarm). */
+function riskNotice(level, why, timeText) {
+  if (level === 2) return { title: tr('notifCritTitle', { do: why.doText }), body: tr('notifCritBody', { t: timeText, c: why.c }) };
+  if (why.basis === 'FORECAST') {
+    return { title: tr('notifWarnForecastTitle', { f: why.f, ft: why.ft }),
+      body: tr('notifWarnForecastBody', { do: why.doText, t: timeText, f: why.f, h: why.h, ft: why.ft, crit: why.fCritical ? tr('warnCritPart', { c: why.c }) : '' }) };
+  }
+  const extra = why.f ? tr('warnFcExtra', { f: why.f, ft: why.ft, crit: why.fCritical ? tr('warnFcCrit') : '' }) : '';
+  return { title: tr('notifWarnMeasuredTitle', { do: why.doText, w: why.w }), body: tr('notifWarnMeasuredBody', { t: timeText, w: why.w, extra }) };
+}
+
 // ---------------- in-dashboard warning banner ----------------
-function showWarningBanner({ doText, timeText, navigate, test = null }) {
+function showWarningBanner({ why = null, timeText, navigate, test = null }) {
   document.querySelector('.aq-risk-alert')?.remove();
   const el = document.createElement('div');
-  el.className = 'aq-risk-alert warning';
+  el.className = `aq-risk-alert warning${why?.basis === 'FORECAST' ? ' forecast' : ''}`;
   el.setAttribute('role', 'alert');
-  el.innerHTML = html`<div class="aq-risk-alert-icon">${ic('triangle-alert', 22)}</div>
+  const forecastBased = why?.basis === 'FORECAST';
+  const extra = !forecastBased && why?.f ? tr('warnFcExtra', { f: why.f, ft: why.ft, crit: why.fCritical ? tr('warnFcCrit') : '' }) : '';
+  el.innerHTML = html`<div class="aq-risk-alert-icon">${ic(forecastBased ? 'trending-down' : 'triangle-alert', 22)}</div>
     <div class="aq-risk-alert-copy">${test
     ? raw(html`<span>TEST ALERT • Warning • sent by ${test.sentBy} at ${test.time}</span>
       <strong>This is a test of the Warning alert.</strong><p>Not a real reading. A real Warning shows the measured DO here.</p>`)
-    : raw(html`<span>WARNING • New reading ${timeText}</span>
-      <strong>Dissolved oxygen is ${doText}, below the normal boundary.</strong>
-      <p>Check the pond and the forecast. Consider manual aeration if DO keeps falling.</p>`)}</div>
+    : forecastBased
+      ? raw(html`<span>${tr('warnHeadForecast', { t: timeText })}</span>
+        <strong>${tr('warnTextForecast', { do: why.doText, f: why.f, ft: why.ft, h: why.h, crit: why.fCritical ? tr('warnCritPart', { c: why.c }) : '' })}</strong>
+        <p>${tr('warnActForecast', { ft: why.ft })}</p>`)
+      : raw(html`<span>${tr('warnHeadMeasured', { t: timeText })}</span>
+        <strong>${tr('warnTextMeasured', { do: why?.doText || 'unavailable', w: why?.w || '5.0' })}${extra}</strong>
+        <p>${tr('warnActMeasured')}</p>`)}</div>
     <div class="aq-risk-alert-actions">
       <button type="button" class="primary" data-a="aeration">${ic('fan', 15)}Aeration control</button>
       <button type="button" data-a="forecast">View forecast</button>
@@ -165,21 +208,18 @@ export function checkRisk(live, { navigate, showCritical }) {
 
   const obsAt = live.observation?.timestamp_utc;
   const fresh = obsAt && now - new Date(obsAt).getTime() < STALE_MS;
-  const doR = live.observation?.readings?.do_mg_l;
-  const doText = doR?.usable ? `${fmtNum(doR.value)} mg/L` : 'unavailable';
   const timeText = obsAt ? fmtTime(obsAt) : '';
+  const why = riskReason(live); // measured DO or forecast?
+  const notice = riskNotice(level, why, timeText);
 
   if (level === 2) showCritical();
-  else showWarningBanner({ doText, timeText, navigate });
+  else showWarningBanner({ why, timeText, navigate });
   if (!fresh) return; // old data: show it, but do not sound an alarm
 
   playTone(level);
-  if (level === 2) startCriticalAlarm(false, 'CRITICAL: low dissolved oxygen', `DO ${doText} at ${timeText}. Immediate operator review needed.`);
+  if (level === 2) startCriticalAlarm(false, notice.title, notice.body);
   try { navigator.vibrate?.(level === 2 ? [400, 150, 400, 150, 400] : [300, 150, 300]); } catch { /* unsupported */ }
-  if (document.visibilityState !== 'visible') {
-    systemNotify(level === 2 ? 'CRITICAL: low dissolved oxygen' : 'Warning: dissolved oxygen dropping',
-      `DO ${doText} at ${timeText}. ${level === 2 ? 'Immediate operator review needed.' : 'Below the normal boundary.'}`, level);
-  }
+  if (document.visibilityState !== 'visible') systemNotify(notice.title, notice.body, level);
 }
 
 // ---------------- admin "test alert" broadcast ----------------

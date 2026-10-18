@@ -118,3 +118,27 @@ test('edge cycle validation mirrors the database rules', () => {
   const noWifi = make(); noWifi.health.wifi_connected = false;
   assert.equal(check(noWifi).rows.health.wifi_signal_rssi_dbm, null); // RSSI dropped when Wi-Fi is off (database rule)
 });
+
+test('risk alerts say whether they come from the measured DO or from the forecast', () => {
+  const { riskMessage } = require('../src/services/risk-message');
+  const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
+  const fc = (vals) => [30, 60, 90, 120].map((h, i) => ({ horizon_minutes: h, forecast_status: 'VALID', predicted_do_mg_l: vals[i],
+    target_timestamp_utc: new Date(Date.UTC(2026, 9, 18, 6, 20 + h)).toISOString() }));
+  const base = { ruleVersion: 'RISK-RULE-1.0', fmtTime, readingTime: '14:20' };
+
+  const f = riskMessage({ ...base, state: 'WARNING', obs: { do_mg_l: 5.21, do_mg_l_status: 'VALID' }, forecasts: fc([4.4, 2.9, 2.5, 2.2]) });
+  assert.equal(f.basis, 'FORECAST');
+  assert.match(f.title, /^Warning \(forecast\): DO may drop to 2\.90 mg\/L by 15:20$/);
+  assert.match(f.body, /Measured now: 5\.21 mg\/L at 14:20 \(still normal\)/);
+  assert.match(f.body, /in 60 min \(15:20\), at or below the critical 3\.0 mg\/L/);
+  assert.match(f.fil.title, /^Babala \(forecast\)/);
+
+  const m = riskMessage({ ...base, state: 'WARNING', obs: { do_mg_l: 4.62, do_mg_l_status: 'VALID' }, forecasts: fc([4.5, 4.4, 4.3, 4.2]) });
+  assert.equal(m.basis, 'MEASURED');
+  assert.equal(m.title, 'Warning: DO is 4.62 mg/L now (below 5.0)');
+  assert.match(m.body, /Measured at 14:20, below the normal 5\.0 mg\/L\. Forecast: 4\.20 mg\/L by 16:20\. Check the pond\./);
+
+  const c = riskMessage({ ...base, state: 'CRITICAL', obs: { do_mg_l: 2.81, do_mg_l_status: 'VALID' }, forecasts: fc([2.7, 2.6, 2.5, 2.4]), reminder: true });
+  assert.equal(c.basis, 'MEASURED');
+  assert.equal(c.title, 'CRITICAL: DO is 2.81 mg/L now (still critical)');
+});

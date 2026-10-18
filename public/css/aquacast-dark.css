@@ -1466,7 +1466,7 @@ html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dash
 html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dashboard-aeration-advisory-kicker { color: #e68ca2; }
 html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dashboard-aeration-advisory-action { background: #be123c; box-shadow: 0 5px 12px #be123c29; }
 
-/* ---- from aquacast-extra.css (306 rules) ---- */
+/* ---- from aquacast-extra.css (309 rules) ---- */
 html[data-theme="dark"] .aq-freshness.sync_delayed { background: #29240f; border-color: #f59e0b55; color: #eabca0; }
 html[data-theme="dark"] .aq-freshness.offline, html[data-theme="dark"] .aq-freshness.no_data, html[data-theme="dark"] .aq-freshness.supabase_unavailable, html[data-theme="dark"] .aq-freshness.backend_unreachable { background: #2f1214; border-color: #7d303d44; color: #e79ab0; }
 html[data-theme="dark"] .aq-freshness.browser_offline { background: #171c21; border-color: #3f4852; color: #c1c9d5; }
@@ -1787,6 +1787,9 @@ html[data-theme="dark"] .aq-guide-critical .aq-guide-current > span { color: #e6
 html[data-theme="dark"] .aq-guide-critical .aq-guide-title { color: #e8a5ba; }
 html[data-theme="dark"] .aq-guide-critical .aq-guide-desc { color: #e79ab0; }
 html[data-theme="dark"] .aq-guide-unknown .aq-guide-current > span { color: #b8c0ca; }
+html[data-theme="dark"] .aq-hero-basis { background: #181331; color: #baa0e1; border: 1px solid #2d225f; }
+html[data-theme="dark"] .aq-hero-basis.measured { background: #2b1f10; color: #e8af9d; border-color: #6d4c26; }
+html[data-theme="dark"] .aq-risk-alert.forecast .aq-risk-alert-icon { color: #a380da; }
 
 /* ---- base layer ---- */
 html[data-theme="dark"] { color-scheme: dark; --chart-surface: #161b22; --ring: 0 0 0 1px #ffffff12, 0 1px 2px #0000004d, 0 12px 28px -14px #00000099; }

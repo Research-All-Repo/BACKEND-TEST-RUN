@@ -3,6 +3,7 @@
 import { get, post, qs } from '../api.js';
 import { html, raw, ic, icon, esc, fmtNum, fmtTime, fmtDateTime, ago, riskKey, riskLabel, doBand, guidanceFor, toast, errorBox, busy } from '../ui.js';
 import { t } from '../i18n.js';
+import { riskReason } from '../alerts.js';
 import { mountChart, doDomain, DO_COLOR, FORECAST_COLOR } from '../chart.js';
 import { openActivityModal, eventIcon, eventLabel, describeEvent } from './shared.js';
 
@@ -155,6 +156,12 @@ export default async function live(root, ctx) {
           ${d.data_quality?.flags?.length ? raw(html`<div class="aq-hero-quality" role="note">${ic('triangle-alert', 16)}<div><strong>${t('qualityTitle')}</strong>
             ${d.data_quality.flags.map((f) => raw(html`<p>${f.values ? t(`q.${f.code}`, f.values) : f.message}</p>`))}<small>${t('qualityNote')}</small></div></div>`) : ''}
           ${d.risk && !d.risk.available && o ? raw(html`<p class="aq-hero-note">${d.risk.message}</p>`) : ''}
+          ${(() => { // a Warning while the measured DO is still normal comes from the forecast: say so
+    if (risk !== 'WARNING') return '';
+    const why = riskReason(d);
+    return why.basis === 'FORECAST' && why.f ? raw(html`<p class="aq-hero-basis">${ic('trending-down', 15)}<span>${t('heroBasisForecast', { f: why.f, ft: why.ft, h: why.h })}</span></p>`)
+      : raw(html`<p class="aq-hero-basis measured">${ic('triangle-alert', 15)}<span>${t('heroBasisMeasured', { w: why.w })}</span></p>`);
+  })()}
           <div class="aq-hero-limits"><span>${raw(t('limitNormal', { v: esc(fmtNum(rule.watch_boundary_do_mg_l, 1)) }))}</span><span>${raw(t('limitCritical', { v: esc(fmtNum(rule.critical_do_mg_l, 1)) }))}</span></div>
           <div class="aq-hero-actions">
             ${urgent ? raw(`<button type="button" class="aq-hero-btn danger" data-hero="aeration">${icon('fan', 17)}${esc(t('goAeration'))}</button>`) : ''}

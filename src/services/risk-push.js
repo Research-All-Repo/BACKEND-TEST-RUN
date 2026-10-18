@@ -15,6 +15,7 @@ const { getAdminClient } = require('../lib/supabase');
 const push = require('../lib/push');
 const { sendAlert } = require('./notify');
 const { getCalibration } = require('../lib/dashboard-settings');
+const { riskMessage } = require('./risk-message');
 
 const RANK = { NORMAL: 0, WATCH: 0, DATA_UNAVAILABLE: 0, WARNING: 1, CRITICAL: 2 };
 
@@ -23,7 +24,7 @@ async function evaluateAndNotify() {
   if ((await getCalibration()).enabled) return { skipped: 'calibration mode: risk alerts paused' };
   const db = getAdminClient();
   const { data: rows, error } = await db.from('risk_assessments')
-    .select('risk_id, current_risk_state, assessment_timestamp_utc, observation_id, raw_observations(timestamp_utc, do_mg_l, do_mg_l_status)')
+    .select('risk_id, current_risk_state, assessment_timestamp_utc, observation_id, rule_version, raw_observations(timestamp_utc, do_mg_l, do_mg_l_status)')
     .order('assessment_timestamp_utc', { ascending: false }).limit(2);
   if (error) throw error;
   if (!rows?.length) return { skipped: 'no risk data' };
@@ -55,18 +56,17 @@ async function evaluateAndNotify() {
     throw claimErr;
   }
 
-  const time = at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
-  const critical = level === 2;
+  const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' });
+  const time = fmtTime(at);
+  // say whether this alert comes from the measured DO or from the forecast (see risk-message.js)
+  const { data: forecasts } = await db.from('forecasts').select('horizon_minutes, forecast_status, predicted_do_mg_l, target_timestamp_utc')
+    .eq('observation_id', cur.observation_id);
+  const msg = riskMessage({ state: cur.current_risk_state, obs, forecasts: forecasts || [], ruleVersion: cur.rule_version, fmtTime, readingTime: time, reminder });
   let result;
   try {
     result = await sendAlert({
-      kind: 'RISK', level: cur.current_risk_state, tag: 'aquacast-risk', url: '/#live',
-      title: critical ? `CRITICAL: low dissolved oxygen${reminder ? ' (still critical)' : ''}` : 'Warning: dissolved oxygen dropping',
-      body: `DO ${doText} at ${time}. ${critical ? 'Immediate operator review needed. Open AquaCast to act.' : 'Below the normal boundary. Check the pond.'}`,
-      fil: {
-        title: critical ? `KRITIKAL: mababa ang dissolved oxygen${reminder ? ' (kritikal pa rin)' : ''}` : 'Babala: bumababa ang dissolved oxygen',
-        body: `DO ${doText} noong ${time}. ${critical ? 'Kailangang suriin agad ng operator. Buksan ang AquaCast para kumilos.' : 'Mas mababa na sa normal. Tingnan ang pond.'}`,
-      },
+      kind: 'RISK', level: cur.current_risk_state, tag: 'aquacast-risk', url: msg.basis === 'FORECAST' ? '/#forecast' : '/#live',
+      title: msg.title, body: msg.body, fil: msg.fil,
     });
   } catch (err) {
     result = { sent: 0, error: err.message };
@@ -76,7 +76,7 @@ async function evaluateAndNotify() {
   const reachedNobody = !result.sent && (result.failed || result.error);
   await db.from('dashboard_audit_log').update({
     ...(reachedNobody ? { action: 'PUSH_RISK_FAILED' } : {}),
-    details: { state: cur.current_risk_state, do: doText, reminder, ...result },
+    details: { state: cur.current_risk_state, do: doText, basis: msg.basis, reminder, ...result },
   }).eq('audit_id', claim.audit_id);
   return { sent: !reachedNobody, retry: reachedNobody, reminder, ...result };
 }
