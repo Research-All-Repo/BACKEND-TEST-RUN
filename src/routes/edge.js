@@ -24,6 +24,10 @@ const { getAdminClient } = require('../lib/supabase');
 const { validateCycle, UUID_RE, HORIZONS } = require('../services/edge-validate');
 
 const router = express.Router();
+const { rateLimit } = require('../middleware/rate-limit');
+const edgeFailures = rateLimit({ windowMs: 15 * 60_000, max: 20, key: (req) => `edge-fail:${req.ip}`, message: 'Too many wrong edge keys from this network.' });
+// a normal Pi makes about 100 calls per 15 minutes (check-in every 15 s + uploads); this only stops floods
+router.use(rateLimit({ windowMs: 15 * 60_000, max: 1200, shared: false, key: (req) => `edge:${req.ip}`, message: 'Too many edge requests.' }));
 const MAX_BATCH = 50;
 const API_VERSION = 1;
 
@@ -34,7 +38,10 @@ function edgeAuth(req, _res, next) {
   if (config.edge.apiKey.length < 32) return next(new ApiError(503, 'EDGE_KEY_TOO_SHORT', 'EDGE_API_KEY on the server must be at least 32 characters.'));
   const m = /^Bearer\s+(.+)$/i.exec(req.get('authorization') || '');
   if (!m || !crypto.timingSafeEqual(digest(m[1].trim()), digest(config.edge.apiKey))) {
-    return next(new ApiError(401, 'EDGE_KEY_INVALID', 'Edge key missing or wrong. Check AQUACAST_EDGE_KEY on the Raspberry Pi.'));
+    // wrong keys are counted per network: after 20 in 15 minutes that address is refused for a while
+    return edgeFailures.hit(req).then((r) => next(r.allowed
+      ? new ApiError(401, 'EDGE_KEY_INVALID', 'Edge key missing or wrong. Check AQUACAST_EDGE_KEY on the Raspberry Pi.')
+      : edgeFailures.tooMany(r.retry)), next);
   }
   req.edge = { version: String(req.get('x-aquacast-edge-version') || '').slice(0, 40) || null };
   next();

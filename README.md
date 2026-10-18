@@ -260,6 +260,17 @@ The Pi program is in `edge-pi/` (Python). It replaces the group's `aquacast_logg
 - **Simulator:** while `MOCK_EDGE_ENABLED=true` the edge API refuses data (`SIMULATOR_ENABLED`) so real and simulated readings never mix. Cut-over: `edge-pi/README.md` step 5 and `supabase/cutover/clear_simulated_data.sql`.
 - **Diagnostics:** Settings → Phone Alert Diagnostics → *Raspberry Pi connection* (last check-in, readings waiting on the SD card, clock difference, last refused reading).
 
+## 20. Security summary
+
+- **Sign-in:** tokens only in httpOnly, Secure, SameSite cookies (page scripts cannot read them); state-changing calls need the dashboard header + same-origin check (CSRF); suspended / revoked accounts lose access at once; changing a password signs out other devices.
+- **Passwords:** 10-128 characters, not a common password, not one repeated character, not built from the email name. Sign-in errors never reveal whether an email is registered.
+- **Privacy between users (migration 009):** each user reads only their own account; only Administrators see the user directory, device list, error log, exports and account-administration events (approvals, suspensions with reasons, role / profile / password changes). Others see only pond-operation records. The database enforces this (row-level security), not only the API. Test: "privacy: staff never see…".
+- **Request limits (429 + Retry-After):** every API call per network (1500 / 5 min) and per session (600 / 5 min); data changes 120 / 10 min; sign-in 10 / 15 min per account and network, 30 / 15 min per network, 20 / hour per account; account requests 5 / hour; password reset 5 / hour; exports 30 / 10 min; test notifications 6 / 10 min; aerator requests 30 / 10 min; Raspberry Pi edge API 1200 / 15 min and 20 wrong keys / 15 min per network. Sign-in and change limits are shared by all server instances (Supabase), the general limits are per instance.
+- **Raspberry Pi:** own revocable key (EDGE_API_KEY), never the Supabase keys; constant-time key check; every upload validated against the database rules.
+- **Simulator lock (migration 008):** the database refuses simulated readings once the real Pi is in use.
+- **Headers:** strict Content-Security-Policy, HSTS, no framing, no MIME sniffing, no referrer, same-origin resource policy, camera / microphone / location blocked.
+- **Audit log:** every administrative and operational action with who and when.
+
 ## Tests
 
 ```bash

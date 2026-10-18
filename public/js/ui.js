@@ -152,6 +152,59 @@ export function openModal({ overlayClass, modalClass, content, onMount, dismissa
   return close;
 }
 
+/**
+ * Row action menu ("..." buttons). Opens OUTSIDE tables and scroll areas (appended to <body>), so it is
+ * never cut off: a popup next to the button on wide screens, a bottom sheet with a backdrop on phones.
+ * items: [{ label, icon, tone: 'danger'|'warn'|'', disabled, onSelect }]
+ */
+let openActionClose = null;
+export function openActionMenu(anchor, { title = '', items = [] }) {
+  if (openActionClose) { const same = openActionClose.anchor === anchor; openActionClose(); if (same) return null; }
+  const sheet = window.matchMedia('(max-width: 720px)').matches;
+  const wrap = document.createElement('div');
+  wrap.className = `aq-action-layer${sheet ? ' sheet' : ''}`;
+  wrap.innerHTML = `${sheet ? '<div class="aq-action-backdrop" data-close></div>' : ''}
+    <div class="aq-action-menu" role="menu" aria-label="${esc(title || 'Actions')}">
+      ${sheet && title ? `<div class="aq-action-title">${esc(title)}</div>` : ''}
+      ${items.map((it, i) => `<button type="button" role="menuitem" data-i="${i}" class="${it.tone || ''}" ${it.disabled ? 'disabled' : ''}>${it.icon ? icon(it.icon, sheet ? 18 : 14) : ''}<span>${esc(it.label)}</span></button>`).join('')}
+      ${sheet ? '<button type="button" class="aq-action-cancel" data-close>Cancel</button>' : ''}
+    </div>`;
+  document.body.append(wrap);
+  const menu = wrap.querySelector('.aq-action-menu');
+  if (!sheet) { // place next to the button, flipped up / left when there is no room
+    const r = anchor.getBoundingClientRect();
+    const mw = menu.offsetWidth; const mh = menu.offsetHeight;
+    const left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+    const below = r.bottom + 6;
+    const top = below + mh > window.innerHeight - 8 ? Math.max(8, r.top - mh - 6) : below;
+    menu.style.left = `${left}px`; menu.style.top = `${top}px`;
+  }
+  anchor.setAttribute('aria-expanded', 'true');
+  const close = () => {
+    wrap.remove(); anchor.setAttribute('aria-expanded', 'false'); openActionClose = null;
+    document.removeEventListener('keydown', onKey); document.removeEventListener('click', onOutside, true);
+    window.removeEventListener('resize', close); window.removeEventListener('hashchange', close);
+    if (!sheet) window.removeEventListener('scroll', close, true);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const onOutside = (e) => { if (!wrap.contains(e.target) && !anchor.contains(e.target)) close(); };
+  wrap.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close]')) { close(); return; }
+    const b = e.target.closest('[data-i]');
+    if (!b || b.disabled) return;
+    close();
+    items[Number(b.dataset.i)].onSelect?.();
+  });
+  document.addEventListener('keydown', onKey);
+  setTimeout(() => document.addEventListener('click', onOutside, true), 0);
+  window.addEventListener('resize', close); window.addEventListener('hashchange', close);
+  if (!sheet) window.addEventListener('scroll', close, true);
+  close.anchor = anchor;
+  openActionClose = close;
+  menu.querySelector('button:not([disabled])')?.focus({ preventScroll: true });
+  return close;
+}
+
 export function formData(form) { return Object.fromEntries(new FormData(form).entries()); }
 
 /** Disable a button while an async action runs. */

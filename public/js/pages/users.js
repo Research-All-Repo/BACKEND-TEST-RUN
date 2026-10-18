@@ -1,7 +1,7 @@
 // User Directory (ADMIN): pending access requests, authorized users, role/status changes.
 // Every change goes through the backend -> admin_set_user_access RPC (audited in Supabase).
 import { get, post, patch } from '../api.js';
-import { html, raw, ic, esc, fmtDateTime, ago, initials, roleLabel, titleCase, toast, errorBox, loadingBox, openModal, formData, busy } from '../ui.js';
+import { html, raw, ic, esc, fmtDateTime, ago, initials, roleLabel, titleCase, toast, errorBox, loadingBox, openModal, openActionMenu, formData, busy } from '../ui.js';
 import { paginationHtml, wirePagination } from './shared.js';
 
 const FILTERS = { ALL: 'All', ACTIVE: 'Active', SUSPENDED: 'Suspended', REVOKED: 'Revoked' };
@@ -103,32 +103,26 @@ export default async function users(root, ctx) {
         <td>${u.organization || '—'}${u.position ? raw(html`<br><small class="aq-muted">${u.position}</small>`) : ''}</td>
         <td><span class="user2-status ${u.status.toLowerCase()}"><span></span>${titleCase(u.status)}</span></td>
         <td>${u.auth?.last_sign_in_at || u.last_login_at ? ago(u.auth?.last_sign_in_at || u.last_login_at) : 'Never'}</td>
-        <td class="user2-actions-cell"><div class="user2-menu-wrapper"><button type="button" class="user2-more-button" data-menu="${u.user_id}" aria-label="Actions for ${u.full_name || u.email}">${ic('ellipsis-vertical', 16)}</button>
-          <div class="user2-action-menu aq-hidden" data-menu-for="${u.user_id}">
-            <button type="button" data-act="view" data-id="${u.user_id}">${ic('eye', 14)}View</button>
-            <button type="button" data-act="edit" data-id="${u.user_id}">${ic('pencil', 14)}Edit details</button>
-            ${u.status === 'ACTIVE' ? raw(html`<button type="button" data-act="role" data-id="${u.user_id}" ${u.is_self ? 'disabled' : ''}>${ic('shield', 14)}Change role</button>
-              <button type="button" class="suspend" data-act="suspend" data-id="${u.user_id}" ${u.is_self ? 'disabled' : ''}>${ic('pause', 14)}Suspend</button>`) : ''}
-            ${u.status === 'SUSPENDED' || u.status === 'REVOKED' ? raw(html`<button type="button" class="reactivate" data-act="reactivate" data-id="${u.user_id}">${ic('rotate-ccw', 14)}Reactivate</button>`) : ''}
-            ${u.status !== 'REVOKED' ? raw(html`<button type="button" class="suspend" data-act="revoke" data-id="${u.user_id}" ${u.is_self ? 'disabled' : ''}>${ic('ban', 14)}Revoke</button>`) : ''}
-          </div></div></td></tr>`))
+        <td class="user2-actions-cell"><button type="button" class="user2-more-button" data-menu="${u.user_id}" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for ${u.full_name || u.email}">${ic('ellipsis-vertical', 16)}</button></td></tr>`))
         : raw(html`<tr><td colspan="6"><div class="user2-no-results">${ic('search-x', 20)}No users match this search or filter.</div></td></tr>`)}</tbody></table></div>
       ${raw(paginationHtml('user2', { page: st.page, pageSize: st.pageSize, total: rows.length, noun: 'users', sizes: [10, 25, 50] }))}`;
     wirePagination(box, (c) => { Object.assign(st, c); renderTable(); });
     box.querySelectorAll('[data-menu]').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
-      const menu = box.querySelector(`[data-menu-for="${b.dataset.menu}"]`);
-      const wasHidden = menu.classList.contains('aq-hidden');
-      closeMenus();
-      if (wasHidden) menu.classList.remove('aq-hidden');
-    }));
-    box.querySelectorAll('.user2-action-menu [data-act]').forEach((b) => b.addEventListener('click', () => {
-      closeMenus(); action(b.dataset.act, all.find((u) => u.user_id === b.dataset.id));
+      const u = all.find((x) => x.user_id === b.dataset.menu);
+      if (!u) return;
+      const go = (act) => () => action(act, u);
+      openActionMenu(b, { title: u.full_name || u.email, items: [
+        { label: 'View', icon: 'eye', onSelect: go('view') },
+        { label: 'Edit details', icon: 'pencil', onSelect: go('edit') },
+        ...(u.status === 'ACTIVE' ? [
+          { label: 'Change role', icon: 'shield', disabled: u.is_self, onSelect: go('role') },
+          { label: 'Suspend', icon: 'pause', tone: 'warn', disabled: u.is_self, onSelect: go('suspend') }] : []),
+        ...(u.status === 'SUSPENDED' || u.status === 'REVOKED' ? [{ label: 'Reactivate', icon: 'rotate-ccw', onSelect: go('reactivate') }] : []),
+        ...(u.status !== 'REVOKED' ? [{ label: 'Revoke', icon: 'ban', tone: 'danger', disabled: u.is_self, onSelect: go('revoke') }] : []),
+      ] });
     }));
   }
-  const closeMenus = () => root.querySelectorAll('.user2-action-menu').forEach((m) => m.classList.add('aq-hidden'));
-  const onDoc = () => closeMenus();
-  document.addEventListener('click', onDoc);
 
   function modal(kicker, title, sub, body, onSubmit) {
     openModal({
@@ -223,5 +217,5 @@ export default async function users(root, ctx) {
   }));
 
   await load();
-  return () => { document.removeEventListener('click', onDoc); clearTimeout(deb); };
+  return () => { clearTimeout(deb); };
 }

@@ -18,6 +18,21 @@ function readEmail(body) {
   return email;
 }
 
+// Passwords: at least 10 characters (Supabase checks length too), at most 128, not a well-known
+// password, not one repeated character, and not built from the person's own email name.
+const COMMON = ['password', 'passw0rd', '1234567890', '0123456789', 'qwertyuiop', 'asdfghjkl', 'iloveyou', 'aquacast', 'admin', 'welcome',
+  'letmein', 'abc123', 'password1', 'qwerty123', '11111111', 'changeme', 'p@ssw0rd', 'bfar'];
+function passwordProblem(pw, email = '') {
+  if (pw.length < 10) return 'Password must be at least 10 characters.';
+  if (pw.length > 128) return 'Password must be at most 128 characters.';
+  const low = pw.toLowerCase();
+  if (/^(.)\1+$/.test(pw)) return 'Choose a password that is not one repeated character.';
+  if (COMMON.some((c) => low === c || (c.length >= 8 && low.replace(/[^a-z0-9@]/g, '').startsWith(c) && low.length < c.length + 4))) return 'This password is too common. Choose something harder to guess.';
+  const name = String(email).split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (name.length >= 4 && low.replace(/[^a-z0-9]/g, '').includes(name)) return 'Do not use your email name in your password.';
+  return null;
+}
+
 function publicProfile(p) {
   if (!p) return null;
   return {
@@ -43,7 +58,11 @@ function authFailure(error) {
  * 3. user_access_profiles.status must be ACTIVE (PENDING / SUSPENDED / REVOKED are refused).
  * Only then are the session cookies issued.
  */
+// three sign-in limits: one person guessing one account, one network trying many accounts,
+// and many networks trying one account (spread-out password guessing)
 router.post('/login', rateLimit({ windowMs: 15 * 60_000, max: 10, key: (req) => `login:${req.ip}:${String(req.body?.email || '').toLowerCase()}` }),
+  rateLimit({ windowMs: 15 * 60_000, max: 30, key: (req) => `login-ip:${req.ip}` }),
+  rateLimit({ windowMs: 60 * 60_000, max: 20, key: (req) => `login-email:${String(req.body?.email || '').trim().toLowerCase()}` }),
   async (req, res, next) => {
     try {
       const email = readEmail(req.body);
@@ -108,7 +127,7 @@ router.post('/request-access', rateLimit({ windowMs: 60 * 60_000, max: 5, key: (
       const position = sanitizeText(req.body?.position, 120);
       if (!fullName) throw E.validation('Full name is required.');
       if (!organization) throw E.validation('Organization / assignment is required.');
-      if (password.length < 10) throw E.validation('Password must be at least 10 characters.');
+      { const weak = passwordProblem(password, email); if (weak) throw E.validation(weak); }
       const consent = req.body?.privacy_consent === true || req.body?.privacy_consent === 'on' || req.body?.privacy_consent === 'true';
       if (!consent) throw E.validation('Please read and accept the Privacy Notice to request access.');
 
@@ -181,7 +200,7 @@ router.post('/change-password', requireAuth(), rateLimit({ windowMs: 15 * 60_000
       const current = String(req.body?.current_password || '');
       const next_ = String(req.body?.new_password || '');
       if (!current) throw E.validation('Enter your current password.');
-      if (next_.length < 10) throw E.validation('The new password must be at least 10 characters.');
+      { const weak = passwordProblem(next_, user.email); if (weak) throw E.validation(weak.replace(/^Password/, 'The new password')); }
       if (next_ === current) throw E.validation('The new password must be different from the current one.');
       const { data: check, error: wrong } = await createAuthClient().auth.signInWithPassword({ email: user.email, password: current });
       if (wrong) {
@@ -234,7 +253,8 @@ router.post('/set-password', rateLimit({ windowMs: 15 * 60_000, max: 10, key: (r
       const token = String(req.body?.access_token || '');
       const password = String(req.body?.password || '');
       if (!token) throw E.validation('The link is missing its token. Open the link from your email again.');
-      if (password.length < 10) throw E.validation('Password must be at least 10 characters.');
+      const weak = passwordProblem(password);
+      if (weak) throw E.validation(weak);
       const { data, error } = await createAuthClient().auth.getUser(token);
       if (error || !data?.user) throw E.sessionExpired();
       const { error: upd } = await getAdminClient().auth.admin.updateUserById(data.user.id, { password });

@@ -1466,7 +1466,7 @@ html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dash
 html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dashboard-aeration-advisory-kicker { color: #e68ca2; }
 html[data-theme="dark"] .dashboard-aeration-advisory.critical.acknowledged .dashboard-aeration-advisory-action { background: #be123c; box-shadow: 0 5px 12px #be123c29; }
 
-/* ---- from aquacast-extra.css (309 rules) ---- */
+/* ---- from aquacast-extra.css (318 rules) ---- */
 html[data-theme="dark"] .aq-freshness.sync_delayed { background: #29240f; border-color: #f59e0b55; color: #eabca0; }
 html[data-theme="dark"] .aq-freshness.offline, html[data-theme="dark"] .aq-freshness.no_data, html[data-theme="dark"] .aq-freshness.supabase_unavailable, html[data-theme="dark"] .aq-freshness.backend_unreachable { background: #2f1214; border-color: #7d303d44; color: #e79ab0; }
 html[data-theme="dark"] .aq-freshness.browser_offline { background: #171c21; border-color: #3f4852; color: #c1c9d5; }
@@ -1790,6 +1790,17 @@ html[data-theme="dark"] .aq-guide-unknown .aq-guide-current > span { color: #b8c
 html[data-theme="dark"] .aq-hero-basis { background: #181331; color: #baa0e1; border: 1px solid #2d225f; }
 html[data-theme="dark"] .aq-hero-basis.measured { background: #2b1f10; color: #e8af9d; border-color: #6d4c26; }
 html[data-theme="dark"] .aq-risk-alert.forecast .aq-risk-alert-icon { color: #a380da; }
+html[data-theme="dark"] .aq-action-layer .aq-action-menu { background: #232831; border: 1px solid #373f4b; box-shadow: 0 18px 44px rgba(15,23,42,.18); }
+html[data-theme="dark"] .aq-action-menu button { color: #c1c9d5; }
+html[data-theme="dark"] .aq-action-menu button:hover:not(:disabled), html[data-theme="dark"] .aq-action-menu button:focus-visible { background: #171c21; }
+html[data-theme="dark"] .aq-action-menu button.warn { color: #ecb890; }
+html[data-theme="dark"] .aq-action-menu button.danger { color: #e68ca2; }
+html[data-theme="dark"] .aq-action-backdrop { background: #0f172a73; }
+html[data-theme="dark"] .aq-action-title { color: #a8b0bb; border-bottom: 1px solid #343d47; }
+html[data-theme="dark"] .aq-action-layer.sheet .aq-action-cancel { border-top: 1px solid #343d47; color: #adebe6; }
+@media (max-width: 720px) {
+  html[data-theme="dark"] main select, html[data-theme="dark"] [role=dialog] select { border: 1px solid #3f4852; background-color: #232831; color: #d3daeb; }
+}
 
 /* ---- base layer ---- */
 html[data-theme="dark"] { color-scheme: dark; --chart-surface: #161b22; --ring: 0 0 0 1px #ffffff12, 0 1px 2px #0000004d, 0 12px 28px -14px #00000099; }

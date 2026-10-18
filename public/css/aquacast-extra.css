@@ -891,3 +891,40 @@ body button:not(:disabled):active, .aq-series-toggle:active { scale: 0.97; }
 .aq-hero-basis svg{flex:0 0 auto;margin-top:2px}
 .aq-hero-basis.measured{background:#fff7ed;color:#9a3412;border-color:#fed7aa}
 .aq-risk-alert.forecast .aq-risk-alert-icon{color:#6d28d9}
+
+/* ---------- Row action menus ("..." buttons): rendered on <body>, never clipped ---------- */
+.aq-action-layer{position:fixed;inset:0;z-index:4000;pointer-events:none}
+.aq-action-layer .aq-action-menu{position:fixed;pointer-events:auto;min-width:200px;max-width:min(320px,calc(100vw - 16px));
+  background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 18px 44px rgba(15,23,42,.18);padding:6px;display:flex;flex-direction:column;gap:2px}
+.aq-action-menu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;border-radius:10px;padding:10px 12px;
+  font:inherit;font-size:14px;font-weight:600;color:#334155;text-align:left;cursor:pointer}
+.aq-action-menu button:hover:not(:disabled),.aq-action-menu button:focus-visible{background:#f1f5f9;outline:none}
+.aq-action-menu button:disabled{opacity:.45;cursor:not-allowed}
+.aq-action-menu button.warn{color:#b45309}
+.aq-action-menu button.danger{color:#be123c}
+.aq-action-layer.sheet{pointer-events:auto}
+.aq-action-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.45)}
+.aq-action-layer.sheet .aq-action-menu{left:8px;right:8px;bottom:8px;top:auto;max-width:none;min-width:0;
+  padding:8px 8px calc(8px + env(safe-area-inset-bottom));border-radius:18px;animation:aq-sheet-up .18s ease-out}
+.aq-action-layer.sheet .aq-action-menu button{padding:14px 14px;font-size:16px;min-height:48px}
+.aq-action-title{padding:10px 14px 8px;font-size:13px;font-weight:700;color:#64748b;border-bottom:1px solid #eef2f6;margin-bottom:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aq-action-layer.sheet .aq-action-cancel{justify-content:center;margin-top:4px;border-top:1px solid #eef2f6;border-radius:0 0 12px 12px;color:#0f766e}
+@keyframes aq-sheet-up{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.aq-action-layer.sheet .aq-action-menu{animation:none}}
+
+/* ---------- Phones: finger-sized controls (44 px) and 16 px text fields (no iPhone zoom on focus) ---------- */
+@media (max-width: 720px) {
+  main select, [role=dialog] select,
+  main input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),
+  [role=dialog] input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),
+  main textarea, [role=dialog] textarea { min-height: 44px; font-size: 16px; }
+  main select, [role=dialog] select { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 10px; background-color: #fff; color: #0f172a; }
+  [role=dialog] button { min-height: 44px; }
+  [role=dialog] button[data-close][aria-label] { min-width: 44px; }
+  [role=dialog] .aq-field, [role=dialog] label { line-height: 1.4; }
+  [role=dialog] label > select, [role=dialog] label > input, [role=dialog] label > textarea { margin-top: 6px; }
+  .user2-more-button { width: 44px !important; height: 44px !important; }
+  .do-trend-more, .aq-guide-cta { min-height: 44px; }
+  .user2-pagination button, .aq-pagination button, [class*=pagination] button { min-width: 40px; min-height: 40px; }
+}

@@ -48,6 +48,9 @@ async function makeUser(email, password, { confirmed = true, name = 'Test User' 
   return data.user.id;
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// every test starts with fresh request limits (all tests come from one address, which the
+// per-network limits would otherwise count together); the limit test checks them on purpose
+test.beforeEach(async () => { await admin.from('app_rate_limits').delete().neq('bucket_key', ''); });
 
 const adminC = new Client();
 const staffC = new Client();
@@ -129,6 +132,54 @@ test('staff is forbidden from admin endpoints', async () => {
     assert.equal(r.status, 403, p);
     assert.equal(r.json.error.code, 'FORBIDDEN');
   }
+});
+
+test('privacy: staff never see other people\'s account details or account events', async () => {
+  // admin-only areas are refused
+  for (const p of ['/api/users', '/api/settings', '/api/evaluation', '/api/push/diagnostics', '/api/errors', '/api/export/observations.csv', '/api/export/audit.csv']) {
+    const r = await staffC.get(p);
+    assert.equal(r.status, 403, p);
+  }
+  // put an account event in the audit log (a suspension with a reason) so there is something to leak
+  const victim = `victim-${RUN}@aquacast.test`;
+  const vid = await makeUser(victim, 'VictimPass#2026', { name: 'Victim Person' });
+  await admin.from('user_access_profiles').update({ status: 'ACTIVE', role: 'BFAR_STAFF' }).eq('user_id', vid);
+  const sus = await adminC.post(`/api/users/${vid}/suspend`, { reason: `secret reason ${RUN}` });
+  assert.equal(sus.status, 200, JSON.stringify(sus.json));
+
+  const { data: people } = await admin.from('user_access_profiles').select('email');
+  const others = people.map((x) => x.email).filter((e) => e && e !== staffEmail);
+  const pages = ['/api/auth/session', '/api/live', '/api/live/pulse', '/api/forecast/latest', '/api/history/observations?range=7d', '/api/history/series?range=7d',
+    '/api/sensors', '/api/alerts', '/api/alerts?range=7d', '/api/activities?range=30d', '/api/activities?range=30d&page_size=200', '/api/aerator', '/api/aerator/commands'];
+  for (const p of pages) {
+    const r = await staffC.get(p);
+    assert.ok(r.status < 400, `${p} -> ${r.status}`);
+    const body = r.text;
+    for (const e of others) assert.ok(!body.includes(e), `${p} shows another user's email`);
+    assert.ok(!body.includes(`secret reason ${RUN}`), `${p} shows an admin's suspension reason`);
+    assert.ok(!/USER_ACCESS_|PASSWORD_CHANGED|PROFILE_UPDATED|USER_DETAILS_UPDATED/.test(body), `${p} shows account administration events`);
+  }
+  // the admin still sees the suspension in the activity feed
+  const a = await adminC.get('/api/activities?range=30d&page_size=200');
+  assert.ok(a.text.includes(`secret reason ${RUN}`), 'admin should still see account events');
+});
+
+test('request limits: too many requests are refused with 429 and Retry-After', async () => {
+  // wrong passwords for one account: the 11th try inside 15 minutes is refused even with the right password
+  const c = new Client();
+  const email = `limit-${RUN}@aquacast.test`;
+  await makeUser(email, 'LimitPass#2026');
+  let last;
+  for (let i = 0; i < 11; i += 1) last = await c.login(email, 'wrong-password-123');
+  assert.equal(last.status, 429);
+  assert.equal(last.json.error.code, 'RATE_LIMITED');
+  assert.ok(Number(last.headers.get('retry-after')) > 0);
+  const ok = await c.login(email, 'LimitPass#2026');
+  assert.equal(ok.status, 429, 'still blocked: the limit is per account, not per password');
+  // wrong edge keys: refused with 401, then 429 after 20 tries from the same network
+  let e;
+  for (let i = 0; i < 21; i += 1) e = await c.call('GET', '/api/edge/v1/hello', undefined, { authorization: 'Bearer wrong-key-wrong-key-wrong-key-wrong' });
+  assert.ok([429, 503].includes(e.status), `edge got ${e.status}`); // 503 when this server has no EDGE_API_KEY
 });
 
 test('live status returns the latest cycle with 4 horizons, risk, health and freshness', async () => {
@@ -410,7 +461,7 @@ test('edge API: only the edge key opens it, never a dashboard session', async ()
   const c = new Client();
   for (const auth of [undefined, 'Bearer wrong-key']) {
     const r = await c.call('GET', '/api/edge/v1/hello', undefined, auth ? { authorization: auth } : {});
-    assert.ok([401, 503].includes(r.status), `got ${r.status}`); // 503 when EDGE_API_KEY is not set on this server
+    assert.ok([401, 429, 503].includes(r.status), `got ${r.status}`); // 503 when EDGE_API_KEY is not set on this server
   }
   const staff = new Client(); await staff.login(ADMIN.email, ADMIN.password);
   assert.notEqual((await staff.get('/api/edge/v1/hello')).status, 200); // cookies do not count

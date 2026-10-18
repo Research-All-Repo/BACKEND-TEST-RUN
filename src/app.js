@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { ApiError, E } = require('./lib/errors');
 const { requireAuth, requireRole } = require('./middleware/auth');
+const { rateLimit, clientKey } = require('./middleware/rate-limit');
 
 /**
  * Builds the Express app without listening, so the same app can run as a
@@ -36,6 +37,26 @@ function createApp({ mockEdge = null } = {}) {
   app.use('/api/edge', express.json({ limit: '2mb' }), require('./routes/edge'));
   app.use(express.json({ limit: '64kb' }));
   app.use(cookieParser());
+
+  // ---- request limits (429 + Retry-After when exceeded) ----
+  // 1. every API call, per IP address: stops floods and scripted scraping (memory, no DB cost)
+  app.use('/api', rateLimit({ windowMs: 5 * 60_000, max: 1500, shared: false, key: (req) => `api-ip:${req.ip}`,
+    message: 'Too many requests from this network. Please wait a moment and try again.' }));
+  // 2. every API call, per signed-in session (a normal open dashboard uses about 60-120 per 5 minutes)
+  app.use('/api', rateLimit({ windowMs: 5 * 60_000, max: 600, shared: false, key: (req) => `api:${clientKey(req)}`,
+    skip: (req) => !req.cookies?.aq_at, message: 'Too many requests. Please wait a moment and try again.' }));
+  // 3. anything that changes data, shared by all server instances (sign-in routes have their own stricter limits)
+  const writeLimit = rateLimit({ windowMs: 10 * 60_000, max: 120, key: (req) => `write:${clientKey(req)}`,
+    message: 'Too many changes in a short time. Please wait a few minutes and try again.' });
+  app.use('/api', (req, res, next) => (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || /^\/(auth|push\/(risk-hook|stale-check|receipt))(\/|$)/.test(req.path)
+    ? next() : writeLimit(req, res, next)));
+  // 4. costly or noisy actions
+  const tight = (name, max, minutes, message) => rateLimit({ windowMs: minutes * 60_000, max, key: (req) => `${name}:${clientKey(req)}`, message });
+  app.use('/api/export', tight('export', 30, 10, 'Too many downloads. Please wait a few minutes.'));
+  app.post('/api/push/test-me', tight('pushtest', 6, 10, 'Too many test notifications. Please wait a few minutes.'));
+  app.post('/api/alerts/test-broadcast', tight('broadcast', 6, 10, 'Too many test alerts. Please wait a few minutes.'));
+  app.post('/api/aerator/commands', tight('aerator', 30, 10, 'Too many aerator requests. Please wait a few minutes.'));
+  app.post('/api/errors', tight('errlog', 30, 10, 'Too many error reports.'));
 
   // Liveness probe (no auth, no database secrets)
   app.get('/healthz', (_req, res) => res.json({ ok: true, service: 'aquacast-backend', time: new Date().toISOString() }));
