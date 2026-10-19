@@ -1,7 +1,7 @@
 // History & Trends: observations by date/time range (preset or custom), summary cards,
 // DO vs one context variable chart, recorded risk distribution, paginated records, CSV export.
 import { get, qs } from '../api.js';
-import { html, raw, ic, fmtNum, fmtDateTime, riskKey, riskLabel, localInputToIso, isoToLocalInput, toast, errorBox, loadingBox } from '../ui.js';
+import { html, raw, ic, esc, fmtNum, fmtTime, fmtDateTime, riskKey, riskLabel, localInputToIso, isoToLocalInput, toast, errorBox, loadingBox } from '../ui.js';
 import { mountChart, doZones, doThresholds, describeDo, riskSegments, RISK_STYLES, DO_COLOR, CONTEXT_COLOR } from '../chart.js';
 import { paginationHtml, wirePagination } from './shared.js';
 
@@ -118,9 +118,14 @@ export default async function history(root, ctx) {
     const panel = root.querySelector('#h-table-panel');
     try {
       const r = await get(`/api/history/observations${qs({ ...rangeParams(), page: st.page, page_size: st.pageSize })}`);
-      const v = (row, k, st2, d) => (row[st2] === 'VALID' ? fmtNum(row[k], d) : raw(`<span class="aq-muted" title="${row[st2]}">${row[st2] === 'MISSING' ? '—' : 'ERR'}</span>`));
+      const v = (row, k, st2, d) => {
+        if (row[st2] !== 'VALID') return raw(`<span class="aq-muted" title="${row[st2]}">${row[st2] === 'MISSING' ? '—' : 'ERR'}</span>`);
+        const b = row.filled_from_backup?.[k];
+        // a value the Pi took from its backup reading because this reading of the sensor failed
+        return b ? raw(`${esc(fmtNum(row[k], d))}<sup class="aq-backup-mark" title="${esc(`From the backup reading at ${fmtTime(b)}: this sensor's ${fmtTime(row.timestamp_utc)} reading failed.`)}">B</sup>`) : fmtNum(row[k], d);
+      };
       panel.innerHTML = html`<div class="history2-section-header"><div><span class="history2-eyebrow">HISTORICAL RECORDS</span><h3>Observation Records</h3>
-          <p>Measurements per 10-minute cycle with the recorded risk state. ERR marks a sensor reading that was not valid.</p></div><span class="history2-table-count">${r.meta.total} records</span></div>
+          <p>Measurements per 10-minute cycle with the recorded risk state. ERR marks a sensor reading that was not valid; <sup class="aq-backup-mark">B</sup> marks a value taken from the backup reading 5 minutes earlier because that sensor failed (at most 3 readings in a row).</p></div><span class="history2-table-count">${r.meta.total} records</span></div>
         <div class="history2-table-container"><table class="history2-table">
           <thead><tr><th>Timestamp</th><th>DO <small>mg/L</small></th><th>Water Temp <small>°C</small></th><th>pH</th><th>Light <small>lux</small></th>
             <th>Air Temp <small>°C</small></th><th>Humidity <small>%</small></th><th>Pressure <small>hPa</small></th><th>Aeration Record</th><th>Recorded Risk State</th></tr></thead>

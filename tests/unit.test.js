@@ -117,6 +117,16 @@ test('edge cycle validation mirrors the database rules', () => {
   bad((c) => { c.risk.current_risk_state = 'DANGER'; }, /current_risk_state/);
   const noWifi = make(); noWifi.health.wifi_connected = false;
   assert.equal(check(noWifi).rows.health.wifi_signal_rssi_dbm, null); // RSSI dropped when Wi-Fi is off (database rule)
+
+  // values taken from the Pi's backup reading (5 minutes earlier) because the sensor failed in this reading
+  const filled = make(); filled.observation.filled_from_backup = { do_mg_l: '2026-10-05T11:45:03Z' };
+  assert.deepEqual(check(filled).rows.obs.filled_from_backup, { do_mg_l: '2026-10-05T11:45:03.000Z' });
+  assert.equal('filled_from_backup' in check(make()).rows.obs, false); // nothing filled: no note
+  bad((c) => { c.observation.filled_from_backup = { do_mg_l: '2026-10-05T11:20:00Z' }; }, /15 minutes before/);
+  bad((c) => { c.observation.filled_from_backup = { do_mg_l: plus(1) }; }, /15 minutes before/);
+  bad((c) => { c.observation.filled_from_backup = { speed: plus(-5) }; }, /unknown field/);
+  bad((c) => { c.observation.do_mg_l = null; c.observation.do_mg_l_status = 'MISSING'; c.observation.filled_from_backup = { do_mg_l: plus(-5) }; }, /only a VALID value/);
+  bad((c) => { c.observation.filled_from_backup = ['do_mg_l']; }, /must be an object/);
 });
 
 test('risk alerts say whether they come from the measured DO or from the forecast', () => {

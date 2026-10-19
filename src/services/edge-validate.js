@@ -63,6 +63,22 @@ function observation(o, now) {
       fail(`${col}=${row[col]} is marked VALID but is missing or outside the accepted range; mark it OUT_OF_RANGE instead`);
     }
   }
+  // Values the Pi took from its backup reading (halfway through the previous cycle) because the sensor
+  // failed in this reading: { do_mg_l: "2026-10-19T12:05:03Z", ... }. Shown as such in the dashboard.
+  const fb = o.filled_from_backup;
+  if (fb !== null && fb !== undefined) {
+    if (typeof fb !== 'object' || Array.isArray(fb)) fail('filled_from_backup must be an object like {"do_mg_l": "<backup time>"}');
+    const out = {};
+    for (const [k, v] of Object.entries(fb)) {
+      const s = SENSORS.find((x) => x[0] === k);
+      if (!s) fail(`filled_from_backup: unknown field ${k}`);
+      if (row[s[1]] !== 'VALID') fail(`filled_from_backup.${k}: only a VALID value can come from the backup reading`);
+      const bt = time(v, `filled_from_backup.${k}`);
+      if (bt >= ts || ts - bt > 15 * 60_000) fail(`filled_from_backup.${k}: the backup reading must be from the 15 minutes before the reading`);
+      out[k] = bt.toISOString();
+    }
+    if (Object.keys(out).length) row.filled_from_backup = out;
+  }
   return row;
 }
 

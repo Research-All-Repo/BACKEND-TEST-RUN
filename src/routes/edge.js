@@ -173,17 +173,28 @@ router.post('/v1/cycles', async (req, res, next) => {
       ['forecasts', (g) => g.rows.forecasts, 'observation_id,horizon_minutes'],
       ['risk_assessments', (g) => (g.rows.risk ? [g.rows.risk] : []), 'observation_id'],
     ];
+    // Before migration 010 has been run the database has no filled_from_backup column: store the
+    // readings without that note rather than refusing them.
+    const upsert = async (table, rows, onConflict) => {
+      let r = await db().from(table).upsert(rows, { onConflict, ignoreDuplicates: true });
+      if (r.error && table === 'raw_observations' && /filled_from_backup/.test(String(r.error.message || ''))) {
+        console.warn('[edge] column filled_from_backup missing: run supabase/migrations/010_backup_readings.sql');
+        rows.forEach((x) => { delete x.filled_from_backup; });
+        r = await db().from(table).upsert(rows, { onConflict, ignoreDuplicates: true });
+      }
+      return r;
+    };
     let live = todo;
     for (const [table, rowsOf, onConflict] of steps) {
       const rows = live.flatMap(rowsOf);
       if (!rows.length) continue;
-      const { error } = await db().from(table).upsert(rows, { onConflict, ignoreDuplicates: true });
+      const { error } = await upsert(table, rows, onConflict);
       if (!error) continue;
       if (!isConstraint(error)) throw error; // database / network trouble: the Pi will retry the whole batch
       const ok = [];
       for (const g of live) {
         const mine = rowsOf(g);
-        const r = mine.length ? await db().from(table).upsert(mine, { onConflict, ignoreDuplicates: true }) : { error: null };
+        const r = mine.length ? await upsert(table, mine, onConflict) : { error: null };
         if (!r.error) { ok.push(g); continue; }
         if (!isConstraint(r.error)) throw r.error;
         results[g.i] = { observation_id: g.rows.obs.observation_id, status: 'REJECTED', error: `${table}: ${r.error.message}` };

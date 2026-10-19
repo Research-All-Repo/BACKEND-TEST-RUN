@@ -60,6 +60,8 @@ class Config:
     do_address: int = 2
     ph_enabled: bool = True
     warmup_seconds: int = 60
+    backup_reading: bool = True   # extra reading halfway through each cycle (kept on the Pi, never uploaded)
+    backup_max_fills: int = 3     # a failed sensor is filled from it at most this many readings in a row
     # aerator relay (BCM pin numbers). Empty pin = no relay connected (simulated, logs only)
     relay_pin: int | None = None
     relay_active_high: bool = True
@@ -108,6 +110,8 @@ def load(env_file: str | None = None) -> Config:
         do_address=int(g("AQUACAST_DO_ADDRESS", "2")),
         ph_enabled=_bool(v.get("AQUACAST_PH_ENABLED"), True),
         warmup_seconds=max(0, int(g("AQUACAST_WARMUP_SECONDS", "60"))),
+        backup_reading=g("AQUACAST_BACKUP_READING", "1").strip().lower() not in ("0", "false", "no", "off"),
+        backup_max_fills=max(0, int(g("AQUACAST_BACKUP_MAX_FILLS", "3"))),
         relay_pin=_int_or_none(v.get("AQUACAST_RELAY_PIN")),
         relay_active_high=_bool(v.get("AQUACAST_RELAY_ACTIVE_HIGH"), True),
         relay_on_when_energized=_bool(v.get("AQUACAST_RELAY_ON_WHEN_ENERGIZED"), True),

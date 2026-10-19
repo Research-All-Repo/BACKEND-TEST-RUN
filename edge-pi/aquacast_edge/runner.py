@@ -2,6 +2,9 @@
 
   cycle loop    every 10 minutes: read sensors -> forecasts -> risk -> save to SD card
                 (-> automatic aerator control, local buzzer). Works with or without internet.
+                Halfway through each cycle it takes a backup reading (kept on the Pi): if a sensor
+                fails in the next 10-minute reading, that sensor's backup value fills the gap,
+                at most AQUACAST_BACKUP_MAX_FILLS readings in a row.
   sync loop     uploads the SD-card outbox oldest-first whenever the server is reachable.
   control loop  every 15 s: reports the relay state, receives dashboard ON/OFF requests and
                 mode changes, answers them.
@@ -38,6 +41,7 @@ class Edge:
         self.wake_control = threading.Event()
         self.decide = threading.Lock()  # one aerator decision at a time
         self.sensors = sensors.Sensors(cfg)
+        self.backup = None  # latest backup reading: {"slot", "taken", "values", "payload"}
         forecast.load_model(cfg)
         self.models = forecast.model_records(cfg)
 
@@ -59,6 +63,10 @@ class Edge:
         if completed < started or started < slot:  # same guard as aquacast_logger.py
             log.error("clock moved backwards during the reading; cycle not saved")
             return None
+        fills = self.fill_from_backup(values, slot)
+        if fills:
+            record = sensors.record_status(values)
+            raw_payload = {**raw_payload, "filled_from_backup": fills, "backup_payload": self.backup["payload"]}
         obs = {
             "observation_id": str(uuid.uuid4()),
             "timestamp_utc": slot_iso,
@@ -67,6 +75,8 @@ class Edge:
             **values,
             "record_status": record,
         }
+        if fills:
+            obs["filled_from_backup"] = fills
         connected, rssi = health.wifi()
         hlth = {
             "timestamp_utc": iso(utc_now()),
@@ -125,6 +135,45 @@ class Edge:
         self.wake_sync.set()
         return cycle
 
+    def take_backup(self, at: datetime):
+        """The halfway reading. Kept in memory only: it is never uploaded or shown by itself."""
+        if self.backup and self.backup["slot"] == at:
+            return
+        values, _buses, _record, payload = sensors.read_all(self.sensors, self.cfg.sensor_mode, demo_do_shift=self.cfg.demo_do_shift)
+        self.backup = {"slot": at, "taken": utc_now(), "values": values, "payload": payload}
+        bad = [f[0] for f in sensors.FIELDS if values[f[2]] != "VALID"]
+        log.info("backup reading %s  DO=%s (%s)%s", iso(at), values["do_mg_l"], values["do_mg_l_status"],
+                 f"  not valid: {', '.join(bad)}" if bad else "")
+
+    def fill_from_backup(self, values: dict, slot: datetime) -> dict:
+        """A sensor that failed in this reading gets its value from the backup reading taken halfway
+        through the previous cycle, if that one was VALID, for at most backup_max_fills readings in a
+        row. After that it stays blank, so a lasting sensor problem is visible in the dashboard.
+        Returns {field: backup time} for every value that was filled."""
+        runs = self.store.get("failed_in_a_row", {}) or {}
+        b = self.backup
+        usable = (self.cfg.backup_reading and b is not None and b["taken"] < slot
+                  and slot - b["taken"] <= timedelta(minutes=self.cfg.cycle_minutes * 0.75))
+        fills = {}
+        for target, _src, status, *_ in sensors.FIELDS:
+            if values[status] == "VALID":
+                runs[target] = 0
+                continue
+            runs[target] = runs.get(target, 0) + 1
+            n, limit = runs[target], self.cfg.backup_max_fills
+            if usable and n <= limit and b["values"][status] == "VALID":
+                was = values[status]
+                values[target], values[status] = b["values"][target], "VALID"
+                if target == "ph_value":  # keep the pH diagnostics consistent with the value
+                    values["ph_voltage_mv"], values["ph_adc_raw"] = b["values"]["ph_voltage_mv"], b["values"]["ph_adc_raw"]
+                fills[target] = iso(b["taken"])
+                log.warning("%s failed (%s); used the backup reading from %s instead (%s of %s in a row)",
+                            target, was, iso(b["taken"]), n, limit)
+            elif n == limit + 1 and limit:
+                log.warning("%s failed %s readings in a row: left blank from now on until it reads again. Check that sensor.", target, n)
+        self.store.put("failed_in_a_row", runs)
+        return fills
+
     def cycle_loop(self):
         last_cleanup = 0.0
         if self.cfg.sensor_mode == "real" and self.cfg.warmup_seconds:
@@ -135,11 +184,18 @@ class Edge:
             slot = self.slot_for(now)
             # a reading belongs to its 10-minute slot and is taken at the start of it (like aquacast_logger.py);
             # after a late start or a long pause the slot is skipped, never filled in afterwards
-            if now - slot < timedelta(minutes=min(2, self.cfg.cycle_minutes / 2)):
+            window = timedelta(minutes=min(2, self.cfg.cycle_minutes / 2))
+            half = timedelta(minutes=self.cfg.cycle_minutes / 2)
+            if now - slot < window:
                 try:
                     self.run_cycle(slot)
                 except Exception:  # noqa: BLE001 - never let one bad cycle stop the program
                     log.exception("cycle failed")
+            elif self.cfg.backup_reading and half <= now - slot < half + window:
+                try:
+                    self.take_backup(slot + half)
+                except Exception:  # noqa: BLE001
+                    log.exception("backup reading failed")
             if time.time() - last_cleanup > 86400:
                 last_cleanup = time.time()
                 try:
@@ -149,6 +205,8 @@ class Edge:
                 except Exception:  # noqa: BLE001
                     log.exception("housekeeping failed")
             next_slot = slot + timedelta(minutes=self.cfg.cycle_minutes)
+            if self.cfg.backup_reading and utc_now() - slot < half:
+                next_slot = slot + half  # wake up for the backup reading first
             self.stop.wait(max(1.0, (next_slot - utc_now()).total_seconds() + 0.5))
 
     # ------------------------------------------------------------------ aerator

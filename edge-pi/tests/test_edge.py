@@ -250,5 +250,81 @@ class ForecastModel(unittest.TestCase):
             self.assertLess(float(np.abs(ref - mine).max()), 1e-4)
 
 
+class BackupReading(unittest.TestCase):
+    """A sensor that fails in the 10-minute reading is filled from the halfway backup reading,
+    at most 3 readings in a row; after that it stays blank."""
+
+    def make(self, d, **kw):
+        from aquacast_edge.runner import Edge
+        cfg = config.Config(server_url="http://localhost", edge_key="k" * 40, data_dir=Path(d), sensor_mode="demo", **kw)
+        return Edge(cfg)
+
+    def reading(self, do_ok=True, ph_ok=True, do=6.5):
+        v = {f[0]: 1.0 for f in sensors.FIELDS}
+        v.update({f[2]: "VALID" for f in sensors.FIELDS})
+        v["do_mg_l"], v["ph_voltage_mv"], v["ph_adc_raw"] = do, 1500.0, 8000
+        if not do_ok:
+            v["do_mg_l"], v["do_mg_l_status"] = None, "COMMUNICATION_ERROR"
+        if not ph_ok:
+            v["ph_value"], v["ph_status"], v["ph_voltage_mv"], v["ph_adc_raw"] = None, "SENSOR_ERROR", None, None
+        return v
+
+    def test_fill_then_blank_after_three(self):
+        from datetime import datetime, timedelta, timezone
+        with tempfile.TemporaryDirectory() as d:
+            e = self.make(d)
+            t0 = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+            results = []
+            for i in range(5):
+                slot = t0 + timedelta(minutes=10 * i)
+                e.backup = {"slot": slot - timedelta(minutes=5), "taken": slot - timedelta(minutes=5) + timedelta(seconds=3),
+                            "values": self.reading(do=6.0 + i / 10), "payload": {}}
+                v = self.reading(do_ok=False)
+                fills = e.fill_from_backup(v, slot)
+                results.append((v["do_mg_l_status"], v["do_mg_l"], "do_mg_l" in fills))
+            self.assertEqual([r[0] for r in results[:3]], ["VALID"] * 3)
+            self.assertEqual(results[0][1], 6.0)
+            self.assertTrue(all(r[2] for r in results[:3]))
+            self.assertEqual(results[3], ("COMMUNICATION_ERROR", None, False))   # 4th failure in a row: blank
+            self.assertEqual(results[4], ("COMMUNICATION_ERROR", None, False))
+            # the sensor works again -> counter resets -> a later single failure is filled again
+            slot = t0 + timedelta(minutes=50)
+            e.fill_from_backup(self.reading(), slot)
+            slot += timedelta(minutes=10)
+            e.backup = {"slot": slot - timedelta(minutes=5), "taken": slot - timedelta(minutes=5), "values": self.reading(do=5.5), "payload": {}}
+            v = self.reading(do_ok=False)
+            self.assertEqual(e.fill_from_backup(v, slot), {"do_mg_l": "2026-10-19T12:55:00.000Z"})
+            self.assertEqual(v["do_mg_l"], 5.5)
+
+    def test_no_fill_from_bad_or_old_backup_or_when_off(self):
+        from datetime import datetime, timedelta, timezone
+        slot = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as d:
+            e = self.make(d)
+            e.backup = {"slot": slot - timedelta(minutes=5), "taken": slot - timedelta(minutes=5), "values": self.reading(do_ok=False), "payload": {}}
+            v = self.reading(do_ok=False)
+            self.assertEqual(e.fill_from_backup(v, slot), {})                    # backup failed too
+            e.backup = {"slot": slot - timedelta(minutes=25), "taken": slot - timedelta(minutes=25), "values": self.reading(), "payload": {}}
+            v = self.reading(do_ok=False)
+            self.assertEqual(e.fill_from_backup(v, slot), {})                    # backup too old
+            e.backup = {"slot": slot - timedelta(minutes=5), "taken": slot - timedelta(minutes=5), "values": self.reading(), "payload": {}}
+            v = self.reading(ph_ok=False)
+            fills = e.fill_from_backup(v, slot)
+            self.assertEqual(list(fills), ["ph_value"])                          # only the failed sensor
+            self.assertEqual((v["ph_status"], v["ph_voltage_mv"], v["ph_adc_raw"]), ("VALID", 1500.0, 8000))
+        with tempfile.TemporaryDirectory() as d:
+            e = self.make(d, backup_reading=False)
+            e.backup = {"slot": slot - timedelta(minutes=5), "taken": slot - timedelta(minutes=5), "values": self.reading(), "payload": {}}
+            v = self.reading(do_ok=False)
+            self.assertEqual(e.fill_from_backup(v, slot), {})
+
+    def test_settings(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
+            f.write("AQUACAST_BACKUP_READING=0\nAQUACAST_BACKUP_MAX_FILLS=2\n")
+        cfg = config.load(f.name)
+        self.assertEqual((cfg.backup_reading, cfg.backup_max_fills), (False, 2))
+        self.assertEqual((config.load("/nonexistent").backup_reading, config.load("/nonexistent").backup_max_fills), (True, 3))
+
+
 if __name__ == "__main__":
     unittest.main()

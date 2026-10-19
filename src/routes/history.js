@@ -2,6 +2,7 @@
 const express = require('express');
 const { unwrap, E } = require('../lib/errors');
 const { parseRange, parsePage } = require('../lib/helpers');
+const { backupColumn } = require('../lib/backup-column');
 
 const router = express.Router();
 
@@ -27,8 +28,9 @@ router.get('/observations', async (req, res, next) => {
     const { from, to } = parseRange(req.query, { defaultHours: 24, maxDays: 92 });
     const { page, pageSize, offset } = parsePage(req.query, { defaultSize: 25, maxSize: 500 });
     const ascending = req.query.order === 'asc';
+    const extra = await backupColumn();
     const { data, error, count } = await db.from('raw_observations')
-      .select(`${OBS_COLUMNS}, risk_assessments(current_risk_state, forecast_outlook, rule_version)`, { count: 'exact' })
+      .select(`${OBS_COLUMNS}${extra}, risk_assessments(current_risk_state, forecast_outlook, rule_version)`, { count: 'exact' })
       .gte('timestamp_utc', from).lt('timestamp_utc', to)
       .order('timestamp_utc', { ascending }).range(offset, offset + pageSize - 1);
     if (error) throw require('../lib/errors').fromSupabase(error);
@@ -100,15 +102,16 @@ router.get('/export.csv', async (req, res, next) => {
   try {
     const { db } = req.auth;
     const { from, to } = parseRange(req.query, { defaultHours: 24, maxDays: 31 });
-    const cols = OBS_COLUMNS.split(',').map((c) => c.trim());
+    const extra = await backupColumn();
+    const cols = `${OBS_COLUMNS}${extra}`.split(',').map((c) => c.trim());
     const all = [];
     for (let offset = 0; offset < 50_000; offset += 1000) {
-      const batch = unwrap(await db.from('raw_observations').select(`${OBS_COLUMNS}, risk_assessments(current_risk_state)`)
+      const batch = unwrap(await db.from('raw_observations').select(`${OBS_COLUMNS}${extra}, risk_assessments(current_risk_state)`)
         .gte('timestamp_utc', from).lt('timestamp_utc', to).order('timestamp_utc').range(offset, offset + 999));
       all.push(...batch);
       if (batch.length < 1000) break;
     }
-    const esc = (v) => (v === null || v === undefined ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+    const esc = (v) => { if (v !== null && typeof v === 'object') v = JSON.stringify(v); return v === null || v === undefined ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v); };
     const lines = [[...cols, 'recorded_risk_state'].join(',')];
     for (const o of all) {
       const risk = Array.isArray(o.risk_assessments) ? o.risk_assessments[0] : o.risk_assessments;

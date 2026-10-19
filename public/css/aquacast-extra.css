@@ -939,3 +939,6 @@ button.aq-hero-risk:focus-visible { outline: 3px solid var(--risk-ink); outline-
   .do-trend-more, .aq-guide-cta { min-height: 44px; }
   .user2-pagination button, .aq-pagination button, [class*=pagination] button { min-width: 40px; min-height: 40px; }
 }
+
+/* a value the Pi took from its backup reading (sensor failed in that 10-minute reading) */
+.aq-backup-mark { margin-left: 3px; padding: 0 4px; border-radius: 4px; background: #e0f2fe; color: #075985; font-size: 10px; font-weight: 800; cursor: help; }

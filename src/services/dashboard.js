@@ -23,7 +23,7 @@ function shapeObservation(o) {
   const readings = {};
   for (const r of READINGS) {
     readings[r.key] = { label: r.label, value: o[r.key], unit: r.unit, quality_status: o[r.status],
-      usable: o[r.status] === 'VALID' && o[r.key] !== null };
+      usable: o[r.status] === 'VALID' && o[r.key] !== null, backup_from: o.filled_from_backup?.[r.key] || null };
   }
   return {
     observation_id: o.observation_id,

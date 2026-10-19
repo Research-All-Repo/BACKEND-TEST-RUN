@@ -11,6 +11,14 @@ as the logger, and it also sends the data to the dashboard. Every 10 minutes it:
 5. uploads it to the dashboard. Without internet the readings wait on the SD card and are sent
    oldest-first when the connection returns. Nothing is lost, and nothing is stored twice.
 
+**Backup reading.** Halfway through each cycle (10:05, 10:15, ...) the Pi takes one extra reading that
+stays on the Pi; it is never uploaded, so the dashboard still gets one reading per 10 minutes. If a
+sensor fails in the 10-minute reading (e.g. DO: COMMUNICATION_ERROR), that sensor's value from the
+backup reading is used instead, and the dashboard marks it (Live Status note, a **B** in History,
+`filled_from_backup` in exports). This happens at most **3 readings in a row** per sensor; from the
+4th failure in a row the value is left blank (ERR), so a real sensor problem stays visible. Settings:
+`AQUACAST_BACKUP_READING=1`, `AQUACAST_BACKUP_MAX_FILLS=3` in `/etc/aquacast/edge.env`.
+
 Every 15 seconds it also picks up aerator ON/OFF requests and mode changes from the dashboard,
 switches the relay and reports back. In AUTOMATIC mode it switches the aerator by itself, even without
 internet: ON at WARNING / CRITICAL, OFF at NORMAL (after at least 20 min ON).

@@ -12,6 +12,8 @@ const { E, unwrap } = require('../lib/errors');
 const { parseRange } = require('../lib/helpers');
 const { getAdminClient } = require('../lib/supabase');
 
+const { backupColumn } = require('../lib/backup-column');
+
 const router = express.Router();
 
 /** Each dataset: table/view, columns, time column, optional row mapper. */
@@ -20,7 +22,12 @@ const DATASETS = {
     label: 'Sensor readings (every 10 min) + recorded risk level',
     table: 'raw_observations', time: 'timestamp_utc',
     select: 'observation_id, timestamp_utc, record_status, do_mg_l, do_mg_l_status, do_saturation_pct, do_saturation_status, water_temp_c, water_temp_status, ph_value, ph_status, light_lux, light_status, air_temp_c, air_temp_status, relative_humidity_pct, humidity_status, atmospheric_pressure_hpa, pressure_status, risk_assessments(current_risk_state)',
-    map: (r) => { const { risk_assessments: ra, ...rest } = r; return { ...rest, recorded_risk_state: (Array.isArray(ra) ? ra[0] : ra)?.current_risk_state ?? null }; },
+    map: (r) => {
+      const { risk_assessments: ra, ...rest } = r;
+      if ('filled_from_backup' in rest) rest.filled_from_backup = rest.filled_from_backup ? JSON.stringify(rest.filled_from_backup) : null;
+      return { ...rest, recorded_risk_state: (Array.isArray(ra) ? ra[0] : ra)?.current_risk_state ?? null };
+    },
+    backupColumn: true,
   },
   forecasts: {
     label: 'Forecasts (4 horizons per reading)',
@@ -78,13 +85,15 @@ router.get('/:dataset.csv', async (req, res, next) => {
     if (!ds) throw E.validation(`Unknown dataset. Use one of: ${Object.keys(DATASETS).join(', ')}.`);
     const { from, to } = parseRange(req.query, { defaultHours: 24 * 7, maxDays: 31 });
     const db = getAdminClient();
+    // which sensor values came from the Pi's backup reading (column from migration 010, if run)
+    const select = ds.backupColumn ? ds.select.replace('pressure_status,', `pressure_status${await backupColumn()},`) : ds.select;
     const rows = [];
     for (let offset = 0; offset < 60_000; offset += 1000) {
-      const batch = unwrap(await db.from(ds.table).select(ds.select).gte(ds.time, from).lt(ds.time, to).order(ds.time).range(offset, offset + 999));
+      const batch = unwrap(await db.from(ds.table).select(select).gte(ds.time, from).lt(ds.time, to).order(ds.time).range(offset, offset + 999));
       rows.push(...(ds.map ? batch.map(ds.map) : batch));
       if (batch.length < 1000) break;
     }
-    const cols = rows.length ? Object.keys(rows[0]) : ds.select.split(',').map((c) => c.trim()).filter((c) => !c.includes('('));
+    const cols = rows.length ? Object.keys(rows[0]) : select.split(',').map((c) => c.trim()).filter((c) => !c.includes('('));
     const esc = (v) => (v === null || v === undefined ? '' : /[",\n\r]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
     const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');
     res.set('Content-Type', 'text/csv; charset=utf-8');

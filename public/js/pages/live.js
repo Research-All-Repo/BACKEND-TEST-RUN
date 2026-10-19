@@ -122,6 +122,7 @@ export default async function live(root, ctx) {
     const lines = [];
     const fresh = d.freshness?.state;
 
+    if (doOk && doR.backup_from) lines.push(t('heroBackup', { b: fmtTime(doR.backup_from), t: at }));
     if (state !== 'DATA_UNAVAILABLE') {
       const low = valid.reduce((a, f) => (!a || f.predicted_do_mg_l < a.predicted_do_mg_l ? f : a), null);
       const lowText = low ? t('whyLowest', { f: fmtNum(low.predicted_do_mg_l), ft: fmtTime(low.target_timestamp_utc) }) : '';
@@ -190,7 +191,7 @@ export default async function live(root, ctx) {
       const slope = trend?.slope_mg_l_per_hr;
       const urgent = risk === 'WARNING' || risk === 'CRITICAL';
       const fresh = d.freshness?.state || 'NO_DATA';
-      const reading = (k, f) => { const r = o?.readings?.[k]; return r?.usable ? f(r.value) : r ? r.quality_status.replace(/_/g, ' ').toLowerCase() : '--'; };
+      const reading = (k, f) => { const r = o?.readings?.[k]; return r?.usable ? f(r.value) + (r.backup_from ? ` · ${t('backupTag', { b: fmtTime(r.backup_from) })}` : '') : r ? r.quality_status.replace(/_/g, ' ').toLowerCase() : '--'; };
       const aer = d.aerator?.initialized ? d.aerator : null;
       const aerOut = aer?.controller?.output_state || 'UNKNOWN';
       return html`<section class="aq-hero aq-hero-${rk}" aria-label="Pond status now">
@@ -211,6 +212,7 @@ export default async function live(root, ctx) {
               <div><b>${t(`trend.${trend?.label || 'none'}`)}</b><small>${slope === null || slope === undefined ? t('trendNeeds') : t('trendRate', { v: `${slope > 0 ? '+' : ''}${fmtNum(slope)}` })}</small></div></div>
           </div>
           ${doR && !doR.usable && o ? raw(html`<p class="aq-hero-note">${t('doUnusable', { q: doR.quality_status.replace(/_/g, ' ').toLowerCase() })}</p>`) : ''}
+          ${doR?.usable && doR.backup_from ? raw(html`<p class="aq-hero-basis measured">${ic('history', 15)}<span>${t('heroBackup', { b: fmtTime(doR.backup_from), t: fmtTime(o.timestamp_utc) })}</span></p>`) : ''}
           ${d.data_quality?.flags?.length ? raw(html`<div class="aq-hero-quality" role="note">${ic('triangle-alert', 16)}<div><strong>${t('qualityTitle')}</strong>
             ${d.data_quality.flags.map((f) => raw(html`<p>${f.values ? t(`q.${f.code}`, f.values) : f.message}</p>`))}<small>${t('qualityNote')}</small></div></div>`) : ''}
           ${d.risk && !d.risk.available && o ? raw(html`<p class="aq-hero-note">${d.risk.message}</p>`) : ''}

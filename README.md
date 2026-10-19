@@ -258,6 +258,7 @@ The Pi program is in `edge-pi/` (Python). It replaces the group's `aquacast_logg
 - **Alerts:** a new risk level triggers the normal phone-alert check (the webhook does too; only one sends). Readings older than 60 minutes (uploaded after an outage) never alert.
 - **Aerator:** the Pi polls `control` every 15 s, applies dashboard ON/OFF requests in MANUAL mode, switches by itself in AUTOMATIC mode (also offline; reported later), and acknowledges mode changes.
 - **Simulator:** while `MOCK_EDGE_ENABLED=true` the edge API refuses data (`SIMULATOR_ENABLED`) so real and simulated readings never mix. Cut-over: `edge-pi/README.md` step 5 and `supabase/cutover/clear_simulated_data.sql`.
+- **Backup reading (migration 010):** the Pi also reads halfway through each cycle (kept on the Pi). A sensor that fails in the 10-minute reading gets its backup value, at most 3 readings in a row; after that it stays blank. Such values are recorded in `raw_observations.filled_from_backup` (`{field: backup time}`) and marked on Live Status, in History (**B**) and in exports. Before migration 010 is run the readings are still stored, without that note.
 - **Diagnostics:** Settings → Phone Alert Diagnostics → *Raspberry Pi connection* (last check-in, readings waiting on the SD card, clock difference, last refused reading).
 
 ## 20. Security summary

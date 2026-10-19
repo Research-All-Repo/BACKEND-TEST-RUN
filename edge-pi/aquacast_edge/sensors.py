@@ -137,6 +137,11 @@ class Sensors:
         return payload
 
 
+def record_status(row) -> str:
+    valid = sum(row[f[2]] == "VALID" for f in FIELDS)
+    return "COMPLETE" if valid == len(FIELDS) else ("PARTIAL" if valid else "FAILED")
+
+
 def normalize(payload):
     """Driver payload -> dashboard observation fields (aquacast_logger.normalize + save_cycle rules)."""
     row = {}
@@ -174,8 +179,7 @@ def normalize(payload):
         row["ph_status"] = "SENSOR_ERROR"
     if row["ph_status"] == "CRC_ERROR":
         row["ph_status"] = "SENSOR_ERROR"  # pH has no CRC status in the data dictionary
-    valid = sum(row[f[2]] == "VALID" for f in FIELDS)
-    record = "COMPLETE" if valid == len(FIELDS) else ("PARTIAL" if valid else "FAILED")
+    record = record_status(row)
 
     buses = {}
     for bus in ("rs485", "i2c"):
