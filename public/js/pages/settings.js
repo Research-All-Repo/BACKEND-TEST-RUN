@@ -104,7 +104,7 @@ export default async function settings(root, ctx) {
           <p class="aq-export-note" id="export-range"></p>
         </div>
         <div class="aq-export-grid" id="export-links"></div>
-        <p class="aq-settings-note">Each file covers one month (Philippine time). Person names appear only in the alerts and audit files; share those only within the research team.</p>
+        <p class="aq-settings-note">One file per database table, with exactly the same columns, order and values as Supabase → Table Editor → Export → CSV (times in UTC). Each file covers one month (Philippine time); models, sensors and calibrations are always complete. Person names / user IDs appear in the alerts, delivery and audit files; share those only within the research team.</p>
       </section>
 
       <section class="dashboard-panel settings2-storage-panel">
@@ -190,10 +190,14 @@ export default async function settings(root, ctx) {
         ctx.refreshLive();
       } catch (err) { toast(err.message, 'error'); }
     })));
-    const EXPORTS = [['observations', 'Sensor readings', 'Every 10-minute reading with its recorded risk level'], ['forecasts', 'Forecasts', '+30 to +120 min predictions'],
-      ['risk', 'Risk assessments', 'Risk level and forecast outlook per reading'], ['alerts', 'Alerts', 'Warning / Critical alerts and who acknowledged them'],
-      ['activities', 'Activity log', 'Feeding, aeration, water exchange and other records'], ['aerator', 'Aerator', 'Requests and controller answers'],
-      ['deliveries', 'Alert delivery', 'Devices sent / confirmed for each alert'], ['audit', 'Audit log', 'Every recorded action (who, what, when)']];
+    // one file per database table, the same structure as Supabase -> Table Editor -> Export -> CSV
+    const EXPORTS = [['observations', 'Sensor readings', 'raw_observations: every 10-minute reading'], ['health', 'Raspberry Pi health', 'system_health: Pi status per reading'],
+      ['forecasts', 'Forecasts', 'forecasts: +30 to +120 min predictions'], ['risk', 'Risk assessments', 'risk_assessments: risk level per reading'],
+      ['alerts', 'Alerts', 'risk_alerts: Warning / Critical alerts and acknowledgements'], ['activities', 'Activity log', 'management_events: feeding, aeration, water exchange …'],
+      ['aerator', 'Aerator', 'aerator_commands: requests and controller answers'], ['dispatches', 'Phone alerts sent', 'alert_dispatches: one row per alert sent'],
+      ['deliveries', 'Phone alert delivery', 'alert_deliveries: one row per device'], ['audit', 'Audit log', 'dashboard_audit_log: who did what, when'],
+      ['models', 'Forecast models', 'forecast_models: all (not only this month)'], ['sensors', 'Sensors', 'sensor_registry: all'],
+      ['calibrations', 'Calibrations', 'sensor_calibrations: all']];
     const exportLinks = () => {
       const ym = page.querySelector('#export-month')?.value;
       if (!ym) return;

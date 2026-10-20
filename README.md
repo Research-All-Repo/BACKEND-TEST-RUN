@@ -271,6 +271,7 @@ The Pi program is in `edge-pi/` (Python). It replaces the group's `aquacast_logg
 - **Simulator lock (migration 008):** the database refuses simulated readings once the real Pi is in use.
 - **Headers:** strict Content-Security-Policy, HSTS, no framing, no MIME sniffing, no referrer, same-origin resource policy, camera / microphone / location blocked.
 - **Audit log:** every administrative and operational action with who and when.
+- **CSV exports (migration 011):** System Settings → Data Export and History → Export CSV are produced by the database (`export_table_csv`): one file per table, every column in table order, values as PostgreSQL writes them (UTC times like `2026-10-19 12:40:00+00`), the same structure as Supabase → Table Editor → Export → CSV. Only the server can call it, only for the listed tables.
 
 ## Tests
 

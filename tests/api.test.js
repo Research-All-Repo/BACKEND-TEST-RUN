@@ -352,13 +352,18 @@ test('delivery receipts must be signed; diagnostics list who can be reached', as
 
 test('research data export: admins get CSV per dataset, staff are refused', async () => {
   const q = `?from=${encodeURIComponent(new Date(Date.now() - 3 * 86400_000).toISOString())}&to=${encodeURIComponent(new Date().toISOString())}`;
-  for (const ds of ['observations', 'forecasts', 'risk', 'alerts', 'activities', 'aerator', 'audit']) {
+  for (const ds of ['observations', 'health', 'forecasts', 'risk', 'alerts', 'activities', 'aerator', 'dispatches', 'deliveries', 'audit', 'models', 'sensors', 'calibrations']) {
     const r = await adminC.get(`/api/export/${ds}.csv${q}`);
     assert.equal(r.status, 200, ds);
     assert.match(r.headers.get('content-type'), /text\/csv/, ds);
-    assert.ok(r.text.split('\n').length >= 1, ds);
+    assert.ok(r.text.split('\r\n').length >= 1, ds);
   }
-  assert.match((await adminC.get(`/api/export/observations.csv${q}`)).text.replace(/^\uFEFF/, ''), /^observation_id,timestamp_utc,/);
+  // exactly the table's structure (as Supabase exports it): every column, in table order, PostgreSQL value format
+  const obs = (await adminC.get(`/api/export/observations.csv${q}`)).text;
+  assert.match(obs, /^observation_id,timestamp_utc,acquisition_started_at_utc,acquisition_completed_at_utc,do_mg_l,/);
+  assert.match(obs, /\r\n[0-9a-f-]{36},\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?\+00,/);
+  assert.doesNotMatch(obs, /recorded_risk_state/);
+  assert.equal((await adminC.get(`/api/history/export.csv?range=24h`)).text.split('\r\n')[0], obs.split('\r\n')[0], 'History export = same table structure');
   assert.equal((await adminC.get('/api/export/secrets.csv')).status, 400);
   assert.equal((await staffC.get(`/api/export/observations.csv${q}`)).status, 403);
   const info = await new Client().get('/api/auth/privacy-info');
